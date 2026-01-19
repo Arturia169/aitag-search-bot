@@ -150,7 +150,7 @@ class AITagSearchBot:
         results = await self.api_client.search_works(
             keyword=keyword,
             page=page,
-            page_size=self.config.results_per_page
+            page_size=max(60, self.config.results_per_page)
         )
         
         if results is None:
