@@ -328,17 +328,18 @@ class AITagSearchBot:
         base_url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}"
         offset = 0
         
-        # Configure proxy - httpx uses 'proxies' dict or 'mounts' for newer versions
+        # Configure proxy
         proxy_url = self.config.proxy_url
         
         logger.info(f"Starting manual polling with proxy: {proxy_url}")
         
         # Create client with or without proxy
         if proxy_url:
-            # Use mounts for httpx to configure proxy
+            # Create proxy object
+            proxy = httpx.Proxy(url=proxy_url)
             mounts = {
-                "http://": httpx.AsyncHTTPTransport(proxy=proxy_url),
-                "https://": httpx.AsyncHTTPTransport(proxy=proxy_url),
+                "http://": httpx.AsyncHTTPTransport(proxy=proxy),
+                "https://": httpx.AsyncHTTPTransport(proxy=proxy),
             }
             client = httpx.AsyncClient(mounts=mounts, timeout=60.0)
         else:
