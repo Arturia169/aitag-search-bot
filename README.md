@@ -18,6 +18,55 @@
 
 ### 部署步骤
 
+#### 方式一：使用预构建镜像（推荐）
+
+1. **创建项目目录**
+```bash
+mkdir aitag-search-bot
+cd aitag-search-bot
+```
+
+2. **下载配置文件**
+```bash
+# 下载 docker-compose.yml
+curl -O https://raw.githubusercontent.com/Arturia169/aitag-search-bot/main/docker-compose.yml
+
+# 下载环境变量示例
+curl -O https://raw.githubusercontent.com/Arturia169/aitag-search-bot/main/.env.example
+```
+
+3. **配置环境变量**
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，填入你的Bot Token：
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+```
+
+4. **修改 docker-compose.yml 使用预构建镜像**
+```yaml
+version: '3.8'
+
+services:
+  telegram-bot:
+    image: ghcr.io/arturia169/aitag-search-bot:main
+    container_name: aitag-search-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+```
+
+5. **启动机器人**
+```bash
+docker-compose up -d
+```
+
+#### 方式二：从源码构建
+
 1. **克隆仓库**
 ```bash
 git clone https://github.com/Arturia169/aitag-search-bot.git
@@ -38,6 +87,8 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 ```bash
 docker-compose up -d
 ```
+
+#### 管理命令
 
 4. **查看日志**
 ```bash
