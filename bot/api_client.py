@@ -2,7 +2,7 @@
 
 import logging
 from typing import Optional, Dict, Any, List
-import aiohttp
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -10,15 +10,18 @@ logger = logging.getLogger(__name__)
 class AITagAPIClient:
     """Client for interacting with aitag.win API."""
     
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(self, base_url: str, timeout: int = 30, proxy_url: str = None):
         """Initialize the API client.
         
         Args:
             base_url: Base URL of the website
             timeout: Request timeout in seconds
+            proxy_url: Optional proxy URL for requests
         """
         self.base_url = base_url.rstrip('/')
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.timeout = timeout
+        self.proxy_url = proxy_url
+        logger.info(f"APIClient initialized - base_url: {self.base_url}, timeout: {timeout}, proxy: {proxy_url}")
         
     async def search_works(
         self,
@@ -49,21 +52,42 @@ class AITagAPIClient:
             "time_range": time_range
         }
         
+        logger.info(f"Searching: url={url}, params={params}")
+        
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        logger.info(f"Search successful for keyword '{keyword}', page {page}")
-                        return data
-                    else:
-                        logger.error(f"API request failed with status {response.status}")
-                        return None
-        except aiohttp.ClientError as e:
+            # Create client with or without proxy
+            if self.proxy_url:
+                proxy = httpx.Proxy(url=self.proxy_url)
+                mounts = {
+                    "http://": httpx.AsyncHTTPTransport(proxy=proxy),
+                    "https://": httpx.AsyncHTTPTransport(proxy=proxy),
+                }
+                client = httpx.AsyncClient(mounts=mounts, timeout=float(self.timeout))
+            else:
+                client = httpx.AsyncClient(timeout=float(self.timeout))
+            
+            async with client:
+                response = await client.get(url, params=params)
+                
+                logger.info(f"API response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info(f"Search successful for keyword '{keyword}', page {page}, got {len(data.get('data', []))} results")
+                    return data
+                else:
+                    logger.error(f"API request failed with status {response.status_code}")
+                    logger.error(f"Response body: {response.text[:500]}")
+                    return None
+                    
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout during API request: {e}")
+            return None
+        except httpx.RequestError as e:
             logger.error(f"Network error during API request: {e}")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error during API request: {e}")
+            logger.error(f"Unexpected error during API request: {e}", exc_info=True)
             return None
     
     def get_work_url(self, work_id: int) -> str:

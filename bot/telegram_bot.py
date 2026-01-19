@@ -1,5 +1,6 @@
 """Telegram bot implementation."""
 
+import asyncio
 import logging
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -30,7 +31,8 @@ class AITagSearchBot:
         self.config = config
         self.api_client = AITagAPIClient(
             base_url=config.base_url,
-            timeout=config.api_timeout
+            timeout=config.api_timeout,
+            proxy_url=config.proxy_url
         )
         
         # Build application with custom settings
