@@ -18,35 +18,17 @@
 
 ### 部署步骤
 
-#### 方式一：使用预构建镜像（推荐）
+#### 方式一：使用预构建镜像（推荐，适合生产环境）
 
-1. **创建项目目录**
+1. **在服务器上创建项目目录**
 ```bash
 mkdir aitag-search-bot
 cd aitag-search-bot
 ```
 
-2. **下载配置文件**
+2. **创建 docker-compose.yml 文件**
 ```bash
-# 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/Arturia169/aitag-search-bot/main/docker-compose.yml
-
-# 下载环境变量示例
-curl -O https://raw.githubusercontent.com/Arturia169/aitag-search-bot/main/.env.example
-```
-
-3. **配置环境变量**
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 文件，填入你的Bot Token：
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-```
-
-4. **修改 docker-compose.yml 使用预构建镜像**
-```yaml
+cat > docker-compose.yml << 'EOF'
 version: '3.8'
 
 services:
@@ -58,14 +40,38 @@ services:
       - .env
     environment:
       - TZ=Asia/Shanghai
+    pull_policy: always
+EOF
 ```
 
-5. **启动机器人**
+3. **创建 .env 配置文件**
 ```bash
+cat > .env << 'EOF'
+# Telegram Bot Configuration
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+
+# Website Configuration
+BASE_URL=https://aitag.win
+RESULTS_PER_PAGE=5
+
+# API Configuration
+API_TIMEOUT=30
+EOF
+```
+
+4. **编辑 .env 文件，填入你的Bot Token**
+```bash
+nano .env  # 或使用 vi .env
+# 将 your_bot_token_here 替换为实际的Token
+```
+
+5. **拉取镜像并启动**
+```bash
+docker-compose pull
 docker-compose up -d
 ```
 
-#### 方式二：从源码构建
+#### 方式二：从源码构建（适合开发环境）
 
 1. **克隆仓库**
 ```bash

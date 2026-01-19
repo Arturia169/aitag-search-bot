@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    image: ghcr.io/arturia169/aitag-search-bot:main
+    container_name: aitag-search-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+    pull_policy: always
