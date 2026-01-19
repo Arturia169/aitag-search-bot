@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 class AITagAPIClient:
     """Client for interacting with aitag.win API."""
     
+    IMAGE_BASE_URL = "https://ai-img.10118899.xyz/"
+    
     def __init__(self, base_url: str, timeout: int = 30, proxy_url: str = None):
         """Initialize the API client.
         
@@ -90,6 +92,41 @@ class AITagAPIClient:
         except Exception as e:
             logger.error(f"Unexpected error during API request: {e}", exc_info=True)
             return None
+
+    async def get_work_detail(self, work_id: int) -> Optional[Dict[str, Any]]:
+        """Get full details for a specific work.
+        
+        Args:
+            work_id: Work ID
+            
+        Returns:
+            Dictionary containing work details, or None if request fails
+        """
+        url = f"{self.base_url}/api/work/{work_id}"
+        logger.info(f"Fetching work detail: {url}")
+        
+        try:
+            if self.proxy_url:
+                proxy = httpx.Proxy(url=self.proxy_url)
+                mounts = {
+                    "http://": httpx.AsyncHTTPTransport(proxy=proxy),
+                    "https://": httpx.AsyncHTTPTransport(proxy=proxy),
+                }
+                client = httpx.AsyncClient(mounts=mounts, timeout=float(self.timeout))
+            else:
+                client = httpx.AsyncClient(timeout=float(self.timeout))
+                
+            async with client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(f"Failed to fetch work detail {work_id}: {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching work detail: {e}", exc_info=True)
+            return None
+    
     
     def get_work_url(self, work_id: int) -> str:
         """Get the full URL for a work.
@@ -101,6 +138,45 @@ class AITagAPIClient:
             Full URL to the work detail page
         """
         return f"{self.base_url}/i/{work_id}"
+    
+    def get_full_image_url(self, image_path: str) -> str:
+        """Get the full CDN URL for an image.
+        
+        Args:
+            image_path: Relative image path
+            
+        Returns:
+            Full CDN URL
+        """
+        if not image_path:
+            return ""
+        if image_path.startswith("http"):
+            return image_path
+        return f"{self.IMAGE_BASE_URL}{image_path.lstrip('/')}"
+
+    def get_thumbnail_url(self, work: Dict[str, Any]) -> str:
+        """Construct thumbnail URL from work data if image_path is missing.
+        
+        Args:
+            work: Work data dictionary
+            
+        Returns:
+            Thumbnail URL
+        """
+        image_path = work.get("image_path")
+        if image_path:
+            return self.get_full_image_url(image_path)
+            
+        # Fallback pattern based on research
+        work_id = work.get("id") or work.get("work_id") or work.get("pid")
+        ai_type = work.get("AI_type") or "NAI"
+        user_id = work.get("userId") or work.get("user_id")
+        
+        if work_id and user_id:
+            return f"{self.IMAGE_BASE_URL}{ai_type}/{user_id}/{work_id}_p0.webp"
+        
+        return ""
+    
     
     @staticmethod
     def extract_works(api_response: Dict[str, Any]) -> List[Dict[str, Any]]:

@@ -175,8 +175,8 @@ class AITagSearchBot:
         # Format results
         message = self._format_search_results(keyword, works, page, total_count)
         
-        # Create pagination buttons
-        keyboard = self._create_pagination_keyboard(keyword, page, total_count)
+        # Create pagination keyboard
+        keyboard = self._create_pagination_keyboard(keyword, works, page, total_count)
         
         # Send or edit message
         if message_id:
@@ -203,91 +203,60 @@ class AITagSearchBot:
     ) -> str:
         """Format search results as a message.
         
-        Args:
-            keyword: Search keyword
-            works: List of work dictionaries
-            page: Current page number
-            total_count: Total count of results
-            
         Returns:
             Formatted message string
         """
-        message = f"🎨 <b>搜索结果：{keyword}</b>\n\n"
-        message += f"找到 <b>{total_count}</b> 个相关作品\n"
-        message += f"第 <b>{page}</b> 页\n\n"
-        message += "─" * 30 + "\n\n"
+        message = f"🔍 <b>搜索：{keyword}</b>\n"
+        message += f"找到 <b>{total_count}</b> 个作品 | 第 <b>{page}</b> 页\n"
+        message += "─" * 20 + "\n"
         
-        # Limit to top 10 results for display to avoid message length limits
         display_works = works[:10]
         
         for i, work in enumerate(display_works, 1):
-            # Extract work information (adjust based on actual API response)
-            work_id = work.get("id") or work.get("work_id") or work.get("pid")
             title = work.get("title") or work.get("name") or "无标题"
-            tags = work.get("tags", [])
-            
-            # Format tags
-            if isinstance(tags, list):
-                tags_str = ", ".join(tags[:5])  # Show first 5 tags
-            else:
-                tags_str = str(tags)
-            
-            # Build work entry
-            work_url = self.api_client.get_work_url(work_id)
-            message += f"{i}️⃣ <b>{title}</b>\n"
-            if tags_str:
-                message += f"🏷️ {tags_str}\n"
-            message += f"🔗 <a href='{work_url}'>查看详情</a>\n\n"
+            # Use a more compact format
+            message += f"{i}. <b>{title}</b>\n"
         
+        message += "\n💡 点击下方数字查看图片及提示词"
         return message
     
     def _create_pagination_keyboard(
         self,
         keyword: str,
+        works: list,
         current_page: int,
         total_count: int
     ) -> InlineKeyboardMarkup:
-        """Create pagination keyboard.
-        
-        Args:
-            keyword: Search keyword
-            current_page: Current page number
-            total_count: Total count of results
-            
-        Returns:
-            InlineKeyboardMarkup with pagination buttons
-        """
+        """Create keyboard with detail buttons and pagination."""
         total_pages = (total_count + self.config.results_per_page - 1) // self.config.results_per_page
         
-        buttons = []
+        keyboard = []
         
-        # Previous page button
+        # Detail buttons in rows of 5
+        display_works = works[:10]
+        detail_rows = []
+        for i, work in enumerate(display_works, 1):
+            work_id = work.get("id") or work.get("work_id") or work.get("pid")
+            detail_rows.append(InlineKeyboardButton(str(i), callback_data=f"detail:{work_id}"))
+            if len(detail_rows) == 5:
+                keyboard.append(detail_rows)
+                detail_rows = []
+        if detail_rows:
+            keyboard.append(detail_rows)
+            
+        # Pagination row
+        nav_buttons = []
         if current_page > 1:
-            buttons.append(
-                InlineKeyboardButton(
-                    "⬅️ 上一页",
-                    callback_data=f"search:{keyword}:{current_page - 1}"
-                )
-            )
+            nav_buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"search:{keyword}:{current_page - 1}"))
         
-        # Page indicator
-        buttons.append(
-            InlineKeyboardButton(
-                f"📄 {current_page}/{total_pages}",
-                callback_data="noop"
-            )
-        )
+        nav_buttons.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="noop"))
         
-        # Next page button
         if current_page < total_pages:
-            buttons.append(
-                InlineKeyboardButton(
-                    "下一页 ➡️",
-                    callback_data=f"search:{keyword}:{current_page + 1}"
-                )
-            )
+            nav_buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"search:{keyword}:{current_page + 1}"))
+            
+        keyboard.append(nav_buttons)
         
-        return InlineKeyboardMarkup([buttons])
+        return InlineKeyboardMarkup(keyboard)
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle button callbacks for pagination."""
@@ -314,7 +283,96 @@ class AITagSearchBot:
                     )
                 except ValueError:
                     await query.edit_message_text("❌ 无效的页码")
+        
+        elif data.startswith("detail:"):
+            parts = data.split(":")
+            if len(parts) == 2:
+                work_id = parts[1]
+                await self._send_work_detail(update, work_id)
     
+    
+    async def _send_work_detail(self, update: Update, work_id: str):
+        """Fetch and send detailed work information with image and prompts."""
+        query = update.callback_query
+        
+        # Show "loading..."
+        await query.answer("正在获取详情...")
+        
+        work = await self.api_client.get_work_detail(work_id)
+        if not work:
+            await query.message.reply_text("❌ 获取详情失败，请重试")
+            return
+            
+        # Extract metadata
+        # Structure often contains a 'work' or 'items' or direct fields
+        work_data = work.get("work") or work
+        images = work.get("images", [])
+        
+        title = work_data.get("title") or "无标题"
+        author = work_data.get("author_name") or "未知作者"
+        
+        # Find best image and prompt
+        full_image_url = ""
+        prompt = ""
+        negative_prompt = ""
+        seed = "N/A"
+        sampler = "N/A"
+        
+        if images:
+            img = images[0]
+            full_image_url = self.api_client.get_full_image_url(img.get("image_path"))
+            prompt = img.get("prompt_text") or ""
+            
+        # Parse AI JSON for more details
+        import json
+        ai_json_str = work_data.get("ai_json")
+        if ai_json_str:
+            try:
+                ai_data = json.loads(ai_json_str)
+                comment = ai_data.get("Comment", {})
+                if not prompt:
+                    prompt = comment.get("prompt") or ""
+                negative_prompt = comment.get("uc") or ""  # Undesired content
+                seed = ai_data.get("Seed") or comment.get("seed") or seed
+                sampler = ai_data.get("Sampler") or comment.get("sampler") or sampler
+            except Exception:
+                pass
+                
+        # Format message
+        caption = f"🖼️ <b>{title}</b>\n"
+        caption += f"👤 <b>作者：</b>{author}\n"
+        caption += f"🆔 <code>{work_id}</code>\n"
+        caption += "─" * 15 + "\n"
+        
+        if prompt:
+            # Truncate prompt if too long for caption (Telegram limit is 1024)
+            display_prompt = prompt if len(prompt) < 300 else prompt[:300] + "..."
+            caption += f"📝 <b>正向提示词：</b>\n<code>{display_prompt}</code>\n\n"
+            
+        if negative_prompt:
+            display_np = negative_prompt if len(negative_prompt) < 150 else negative_prompt[:150] + "..."
+            caption += f"🚫 <b>反向提示词：</b>\n<code>{display_np}</code>\n\n"
+            
+        caption += f"🎲 <b>种子：</b><code>{seed}</code> | 🧪 <b>采样：</b>{sampler}\n"
+        caption += f"🔗 <a href='{self.api_client.get_work_url(work_id)}'>在网页查看原文</a>"
+
+        try:
+            if full_image_url:
+                await query.message.reply_photo(
+                    photo=full_image_url,
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+            else:
+                await query.message.reply_text(
+                    caption,
+                    parse_mode="HTML",
+                    disable_web_page_preview=False
+                )
+        except Exception as e:
+            logger.error(f"Error sending detail message: {e}", exc_info=True)
+            await query.message.reply_text("❌ 发送详情失败，可能是图片链接失效或消息过长")
+
     async def post_init(self, application: Application) -> None:
         """Called after the application is initialized."""
         bot_info = await application.bot.get_me()
