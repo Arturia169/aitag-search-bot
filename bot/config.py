@@ -13,7 +13,7 @@ class Config:
     
     # Website settings
     base_url: str = "https://aitag.win"
-    results_per_page: int = 5
+    results_per_page: int = 60
     
     # API settings
     api_timeout: int = 30

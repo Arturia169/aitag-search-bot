@@ -217,7 +217,10 @@ class AITagSearchBot:
         message += f"第 <b>{page}</b> 页\n\n"
         message += "─" * 30 + "\n\n"
         
-        for i, work in enumerate(works, 1):
+        # Limit to top 10 results for display to avoid message length limits
+        display_works = works[:10]
+        
+        for i, work in enumerate(display_works, 1):
             # Extract work information (adjust based on actual API response)
             work_id = work.get("id") or work.get("work_id") or work.get("pid")
             title = work.get("title") or work.get("name") or "无标题"
