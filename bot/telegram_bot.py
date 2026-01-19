@@ -302,15 +302,35 @@ class AITagSearchBot:
                 except ValueError:
                     await query.edit_message_text("❌ 无效的页码")
     
+    async def post_init(self, application: Application) -> None:
+        """Called after the application is initialized."""
+        bot_info = await application.bot.get_me()
+        logger.info(f"Bot started successfully! Username: @{bot_info.username}")
+        logger.info(f"Bot ID: {bot_info.id}")
+        logger.info("Polling for updates...")
+    
+    async def post_shutdown(self, application: Application) -> None:
+        """Called after the application shuts down."""
+        logger.info("Bot stopped")
+    
     def run(self):
         """Start the bot."""
         logger.info("Starting AI Tag Search Bot...")
-        logger.info(f"Bot username will be fetched after connection")
+        
+        # Add post_init and post_shutdown callbacks
+        self.app.post_init = self.post_init
+        self.app.post_shutdown = self.post_shutdown
+        
         try:
+            logger.info("Starting polling...")
             self.app.run_polling(
                 allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True  # Drop pending updates on startup
+                drop_pending_updates=True,  # Drop pending updates on startup
+                poll_interval=1.0,  # Poll every 1 second
+                timeout=30  # Timeout for long polling
             )
+        except KeyboardInterrupt:
+            logger.info("Received shutdown signal")
         except Exception as e:
             logger.error(f"Error running bot: {e}", exc_info=True)
             raise
