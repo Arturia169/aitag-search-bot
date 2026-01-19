@@ -73,7 +73,8 @@ class AITagAPIClient:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    logger.info(f"Search successful for keyword '{keyword}', page {page}, got {len(data.get('data', []))} results")
+                    works = self.extract_works(data)
+                    logger.info(f"Search successful for keyword '{keyword}', page {page}, got {len(works)} results")
                     return data
                 else:
                     logger.error(f"API request failed with status {response.status_code}")
@@ -122,6 +123,8 @@ class AITagAPIClient:
             return api_response["data"]
         elif "works" in api_response:
             return api_response["works"]
+        elif "items" in api_response:
+            return api_response["items"]
         else:
             logger.warning(f"Unknown API response structure: {api_response.keys()}")
             return []
