@@ -58,9 +58,11 @@ class AITagSearchBot:
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message))
+        logger.info("All handlers registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
+        logger.info(f"Received /start command from user {update.effective_user.id}")
         welcome_message = (
             "🎨 <b>AI绘画搜索机器人</b>\n\n"
             "欢迎使用AI绘画搜索机器人！\n\n"
@@ -73,7 +75,11 @@ class AITagSearchBot:
             "• 可以使用分页按钮浏览更多结果\n\n"
             "🔗 数据来源：https://aitag.win/\n"
         )
-        await update.message.reply_text(welcome_message, parse_mode="HTML")
+        try:
+            await update.message.reply_text(welcome_message, parse_mode="HTML")
+            logger.info("Successfully sent welcome message")
+        except Exception as e:
+            logger.error(f"Error sending welcome message: {e}", exc_info=True)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command."""
@@ -299,4 +305,12 @@ class AITagSearchBot:
     def run(self):
         """Start the bot."""
         logger.info("Starting AI Tag Search Bot...")
-        self.app.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info(f"Bot username will be fetched after connection")
+        try:
+            self.app.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True  # Drop pending updates on startup
+            )
+        except Exception as e:
+            logger.error(f"Error running bot: {e}", exc_info=True)
+            raise
