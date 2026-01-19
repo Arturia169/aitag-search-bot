@@ -330,11 +330,15 @@ class AITagSearchBot:
         self.app.post_shutdown = self.post_shutdown
         
         try:
-            logger.info("Starting polling...")
-            # Simplified polling configuration
+            logger.info("Initializing application...")
+            # Use run_polling with minimal configuration
+            logger.info("Starting polling loop...")
             self.app.run_polling(
-                drop_pending_updates=True
+                allowed_updates=None,  # Allow all update types
+                drop_pending_updates=True,
+                close_loop=False
             )
+            logger.info("Polling stopped")
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
         except Exception as e:
