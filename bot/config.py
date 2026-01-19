@@ -33,7 +33,7 @@ class Config:
         return cls(
             telegram_bot_token=telegram_bot_token,
             base_url=os.getenv("BASE_URL", "https://aitag.win"),
-            results_per_page=int(os.getenv("RESULTS_PER_PAGE", "5")),
+            results_per_page=int(os.getenv("RESULTS_PER_PAGE", "60")),
             api_timeout=int(os.getenv("API_TIMEOUT", "30")),
             proxy_url=os.getenv("PROXY_URL"),
             connection_timeout=int(os.getenv("CONNECTION_TIMEOUT", "30")),
