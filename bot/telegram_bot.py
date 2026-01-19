@@ -32,7 +32,20 @@ class AITagSearchBot:
             base_url=config.base_url,
             timeout=config.api_timeout
         )
-        self.app = Application.builder().token(config.telegram_bot_token).build()
+        
+        # Build application with custom settings
+        app_builder = Application.builder().token(config.telegram_bot_token)
+        
+        # Add proxy if configured
+        if config.proxy_url:
+            app_builder.proxy_url(config.proxy_url)
+            logger.info(f"Using proxy: {config.proxy_url}")
+        
+        # Set connection and read timeouts
+        app_builder.connect_timeout(config.connection_timeout)
+        app_builder.read_timeout(config.read_timeout)
+        
+        self.app = app_builder.build()
         
         # Register handlers
         self._register_handlers()

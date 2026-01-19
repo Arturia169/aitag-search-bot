@@ -142,6 +142,24 @@ wuwa
 | `BASE_URL` | aitag.win 网站地址 | `https://aitag.win` |
 | `RESULTS_PER_PAGE` | 每页显示结果数 | `5` |
 | `API_TIMEOUT` | API请求超时时间（秒） | `30` |
+| `PROXY_URL` | 代理服务器地址（可选） | 无 |
+| `CONNECTION_TIMEOUT` | 连接超时时间（秒） | `30` |
+| `READ_TIMEOUT` | 读取超时时间（秒） | `30` |
+
+### 代理配置示例
+
+如果您的服务器需要通过代理访问Telegram API，可以配置 `PROXY_URL`：
+
+```env
+# HTTP代理
+PROXY_URL=http://proxy.example.com:8080
+
+# SOCKS5代理
+PROXY_URL=socks5://proxy.example.com:1080
+
+# 带认证的代理
+PROXY_URL=http://username:password@proxy.example.com:8080
+```
 
 ## 项目结构
 
@@ -200,6 +218,36 @@ python -m bot.main
 1. 检查Docker容器是否正常运行：`docker-compose ps`
 2. 查看日志：`docker-compose logs -f`
 3. 确认Bot Token是否正确配置
+
+### 连接超时错误（Timed out）？
+
+如果看到 `Timed out` 或网络连接错误，可能是以下原因：
+
+1. **需要代理访问Telegram**
+   ```bash
+   # 在 .env 文件中添加代理配置
+   PROXY_URL=http://your-proxy:port
+   # 或
+   PROXY_URL=socks5://your-proxy:port
+   ```
+
+2. **增加超时时间**
+   ```bash
+   # 在 .env 文件中增加超时设置
+   CONNECTION_TIMEOUT=60
+   READ_TIMEOUT=60
+   ```
+
+3. **检查网络连接**
+   ```bash
+   # 测试是否能访问Telegram API
+   curl -I https://api.telegram.org
+   ```
+
+4. **重启容器**
+   ```bash
+   docker-compose restart
+   ```
 
 ### 搜索结果为空？
 
