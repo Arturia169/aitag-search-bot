@@ -331,11 +331,9 @@ class AITagSearchBot:
         
         try:
             logger.info("Starting polling...")
+            # Simplified polling configuration
             self.app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,  # Drop pending updates on startup
-                poll_interval=1.0,  # Poll every 1 second
-                timeout=30  # Timeout for long polling
+                drop_pending_updates=True
             )
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
