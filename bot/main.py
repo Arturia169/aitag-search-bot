@@ -16,6 +16,9 @@ def setup_logging():
             logging.StreamHandler(sys.stdout)
         ]
     )
+    
+    # Set httpx to DEBUG to see all requests
+    logging.getLogger("httpx").setLevel(logging.DEBUG)
 
 
 def main():

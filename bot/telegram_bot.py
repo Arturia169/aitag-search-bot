@@ -58,7 +58,15 @@ class AITagSearchBot:
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message))
+        
+        # Add error handler
+        self.app.add_error_handler(self.error_handler)
+        
         logger.info("All handlers registered successfully")
+    
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle errors."""
+        logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
