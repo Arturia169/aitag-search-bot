@@ -321,11 +321,77 @@ class AITagSearchBot:
         """Called after the application shuts down."""
         logger.info("Bot stopped")
     
+    async def _manual_polling(self):
+        """Manual polling using httpx to call getUpdates directly."""
+        import httpx
+        
+        base_url = f"https://api.telegram.org/bot{self.config.telegram_bot_token}"
+        offset = 0
+        
+        # Configure proxy
+        proxies = self.config.proxy_url if self.config.proxy_url else None
+        
+        logger.info(f"Starting manual polling with proxy: {proxies}")
+        
+        async with httpx.AsyncClient(proxy=proxies, timeout=60.0) as client:
+            while True:
+                try:
+                    # Call getUpdates
+                    response = await client.post(
+                        f"{base_url}/getUpdates",
+                        json={
+                            "offset": offset,
+                            "timeout": 30,
+                            "allowed_updates": ["message", "callback_query"]
+                        }
+                    )
+                    
+                    logger.debug(f"getUpdates response status: {response.status_code}")
+                    
+                    if response.status_code != 200:
+                        logger.error(f"getUpdates failed with status {response.status_code}: {response.text}")
+                        await asyncio.sleep(5)
+                        continue
+                    
+                    data = response.json()
+                    
+                    if not data.get("ok"):
+                        logger.error(f"getUpdates returned error: {data}")
+                        await asyncio.sleep(5)
+                        continue
+                    
+                    updates = data.get("result", [])
+                    
+                    if updates:
+                        logger.info(f"Received {len(updates)} updates")
+                    
+                    for update_data in updates:
+                        # Update offset
+                        offset = update_data["update_id"] + 1
+                        
+                        try:
+                            # Convert to Update object and process
+                            update = Update.de_json(update_data, self.app.bot)
+                            await self.app.process_update(update)
+                        except Exception as e:
+                            logger.error(f"Error processing update: {e}", exc_info=True)
+                    
+                except httpx.TimeoutException:
+                    # Timeout is normal for long polling, just continue
+                    logger.debug("getUpdates timeout, continuing...")
+                    continue
+                except httpx.RequestError as e:
+                    logger.error(f"Request error in getUpdates: {e}", exc_info=True)
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    logger.error(f"Unexpected error in polling: {e}", exc_info=True)
+                    await asyncio.sleep(5)
+    
     def run(self):
-        """Start the bot."""
+        """Start the bot with manual polling."""
         import asyncio
         
-        logger.info("Starting AI Tag Search Bot...")
+        logger.info("Starting AI Tag Search Bot with manual polling...")
         
         async def start_bot():
             """Async function to start the bot."""
@@ -337,20 +403,16 @@ class AITagSearchBot:
                 # Call post_init
                 await self.post_init(self.app)
                 
-                # Start the application
+                # Start the application (but not the updater)
                 await self.app.start()
                 logger.info("Application started")
                 
-                # Start the updater (this should start polling)
-                await self.app.updater.start_polling(
-                    drop_pending_updates=True,
-                    allowed_updates=None
-                )
-                logger.info("Updater started, polling for updates...")
+                # Delete webhook to ensure clean state
+                await self.app.bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Webhook deleted, starting manual polling...")
                 
-                # Keep running
-                while True:
-                    await asyncio.sleep(1)
+                # Use manual polling instead of updater
+                await self._manual_polling()
                     
             except KeyboardInterrupt:
                 logger.info("Received shutdown signal")
@@ -359,8 +421,6 @@ class AITagSearchBot:
             finally:
                 # Cleanup
                 logger.info("Stopping bot...")
-                if self.app.updater.running:
-                    await self.app.updater.stop()
                 await self.app.stop()
                 await self.app.shutdown()
                 await self.post_shutdown(self.app)
