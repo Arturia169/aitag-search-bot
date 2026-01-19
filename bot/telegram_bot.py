@@ -323,24 +323,53 @@ class AITagSearchBot:
     
     def run(self):
         """Start the bot."""
+        import asyncio
+        
         logger.info("Starting AI Tag Search Bot...")
         
-        # Add post_init and post_shutdown callbacks
-        self.app.post_init = self.post_init
-        self.app.post_shutdown = self.post_shutdown
+        async def start_bot():
+            """Async function to start the bot."""
+            try:
+                # Initialize the application
+                await self.app.initialize()
+                logger.info("Application initialized")
+                
+                # Call post_init
+                await self.post_init(self.app)
+                
+                # Start the application
+                await self.app.start()
+                logger.info("Application started")
+                
+                # Start the updater (this should start polling)
+                await self.app.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=None
+                )
+                logger.info("Updater started, polling for updates...")
+                
+                # Keep running
+                while True:
+                    await asyncio.sleep(1)
+                    
+            except KeyboardInterrupt:
+                logger.info("Received shutdown signal")
+            except Exception as e:
+                logger.error(f"Error in bot: {e}", exc_info=True)
+            finally:
+                # Cleanup
+                logger.info("Stopping bot...")
+                if self.app.updater.running:
+                    await self.app.updater.stop()
+                await self.app.stop()
+                await self.app.shutdown()
+                await self.post_shutdown(self.app)
         
+        # Run the async function
         try:
-            logger.info("Initializing application...")
-            # Use run_polling with minimal configuration
-            logger.info("Starting polling loop...")
-            self.app.run_polling(
-                allowed_updates=None,  # Allow all update types
-                drop_pending_updates=True,
-                close_loop=False
-            )
-            logger.info("Polling stopped")
+            asyncio.run(start_bot())
         except KeyboardInterrupt:
-            logger.info("Received shutdown signal")
+            logger.info("Bot stopped by user")
         except Exception as e:
-            logger.error(f"Error running bot: {e}", exc_info=True)
+            logger.error(f"Fatal error: {e}", exc_info=True)
             raise
