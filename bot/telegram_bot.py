@@ -15,6 +15,8 @@ from telegram.ext import (
 
 from .api_client import AITagAPIClient
 from .config import Config
+from .database import SubscriptionDB
+from .param_explainer import parse_parameters, explain_parameters, get_quick_summary
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,11 @@ class AITagSearchBot:
             timeout=config.api_timeout,
             proxy_url=config.proxy_url
         )
+        
+        # Initialize subscription database
+        import os
+        db_path = os.environ.get("SUBSCRIPTION_DB_PATH", "/app/data/subscriptions.db")
+        self.subscription_db = SubscriptionDB(db_path)
         
         # Build application with custom settings
         app_builder = Application.builder().token(config.telegram_bot_token)
@@ -69,6 +76,11 @@ class AITagSearchBot:
         self.app.add_handler(CommandHandler("随机推荐", self.random_command))
         self.app.add_handler(CommandHandler("热榜", self.hot_command))
         self.app.add_handler(CommandHandler("热门", self.hot_command))
+        
+        # Subscription commands
+        self.app.add_handler(CommandHandler("subscribe", self.subscribe_command))
+        self.app.add_handler(CommandHandler("订阅", self.subscribe_command))
+        self.app.add_handler(CommandHandler("我的订阅", self.subscribe_command))
         
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
@@ -115,19 +127,24 @@ class AITagSearchBot:
             "• <code>wuwa</code> - 直接发送词条即刻搜索\n"
             "• <code>/search 原神</code> 或 <code>/搜 原神</code>\n\n"
             "<b>2️⃣ 流行与发现：</b>\n"
-            "• <code>/hot</code> 或 <code>/热榜</code> - 本月最热门的作品\n"
-            "• <code>/random</code> 或 <code>/随机</code> - 全站随机推荐\n"
-            "• <code>/random 白髪</code> 或 <code>/随机 白髪</code> - 定向随机\n\n"
-            "<b>3️⃣ 详情与咒语：</b>\n"
-            "• <b>[数字按钮]</b> - 获取全量高清大图及生成参数\n"
-            "• <b>[📋 复制咒语]</b> - 获取专为手机优化的可点击复制提示词\n"
-            "• <b>[#标签按钮]</b> - 点击作品下方的标签实现连续跳转浏览\n\n"
-            "<b>4️⃣ 中文指令速查：</b>\n"
+            "• <code>/hot</code> 或 <code>/热榜</code> - 本月最热门\n"
+            "• <code>/random</code> 或 <code>/随机</code> - 全站随机\n"
+            "• <code>/random 白髪</code> - 定向随机抽图\n\n"
+            "<b>3️⃣ 作品详情页：</b>\n"
+            "• 👤 <b>作者链接</b> - 点击作者名跳转 Pixiv\n"
+            "• 📋 <b>复制咒语</b> - 获取可直接复制的提示词\n"
+            "• 🎨 <b>参数解读</b> - AI科普生成参数含义\n"
+            "• 🔔 <b>订阅作者</b> - 该作者更新时自动通知\n"
+            "• #️⃣ <b>标签跳转</b> - 点击标签发起新搜索\n\n"
+            "<b>4️⃣ 订阅管理：</b>\n"
+            "• <code>/subscribe</code> 或 <code>/订阅</code> - 查看我的订阅列表\n\n"
+            "<b>5️⃣ 中文指令速查：</b>\n"
             "• <code>/搜</code> <code>/搜索</code> = /search\n"
             "• <code>/热榜</code> <code>/热门</code> = /hot\n"
-            "• <code>/随机</code> <code>/随机推荐</code> = /random\n"
+            "• <code>/随机</code> = /random\n"
+            "• <code>/订阅</code> <code>/我的订阅</code> = /subscribe\n"
             "• <code>/帮助</code> = /help\n\n"
-            "如有疑问或建议，请访问：https://aitag.win/\n"
+            "如有疑问请访问：https://aitag.win/\n"
         )
         await update.message.reply_text(help_message, parse_mode="HTML")
     
@@ -151,6 +168,44 @@ class AITagSearchBot:
         if keyword:
             await self._perform_search(update, keyword, page=1)
     
+    async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /subscribe command to show user's subscriptions."""
+        user_id = update.effective_user.id
+        subscriptions = self.subscription_db.get_user_subscriptions(user_id)
+        
+        if not subscriptions:
+            await update.message.reply_text(
+                "📭 <b>您还没有订阅任何作者</b>\n\n"
+                "💡 <b>如何订阅？</b>\n"
+                "查看任意作品详情时，点击 "🔔 订阅 作者名" 按钮即可订阅该作者。\n"
+                "当该作者有新作品时，机器人会自动通知您！",
+                parse_mode="HTML"
+            )
+            return
+        
+        # Group by type
+        authors = [s for s in subscriptions if s["sub_type"] == "author"]
+        tags = [s for s in subscriptions if s["sub_type"] == "tag"]
+        
+        response = f"📬 <b>您的订阅列表</b> ({len(subscriptions)} 个)\n\n"
+        
+        if authors:
+            response += "<b>👤 作者订阅：</b>\n"
+            for sub in authors:
+                pixiv_link = f"https://www.pixiv.net/users/{sub['sub_target']}"
+                response += f"• <a href='{pixiv_link}'>{sub['sub_name'] or sub['sub_target']}</a>\n"
+            response += "\n"
+        
+        if tags:
+            response += "<b>🏷 标签订阅：</b>\n"
+            for sub in tags:
+                response += f"• #{sub['sub_name'] or sub['sub_target']}\n"
+            response += "\n"
+        
+        response += "💡 点击作品详情中的订阅按钮可管理订阅"
+        
+        await update.message.reply_text(response, parse_mode="HTML", disable_web_page_preview=True)
+
     async def hot_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /hot command to show monthly ranking."""
         await self._show_ranking(update, page=1)
@@ -496,6 +551,26 @@ class AITagSearchBot:
                 work_id = parts[1]
                 await self._send_copyable_prompt(update, work_id)
     
+        elif data.startswith("explain:"):
+            parts = data.split(":", 1)
+            if len(parts) == 2:
+                work_id = parts[1]
+                await self._send_parameter_explanation(update, work_id)
+    
+        elif data.startswith("sub_author:"):
+            # Format: sub_author:author_id:author_name
+            parts = data.split(":", 2)
+            if len(parts) >= 2:
+                author_id = parts[1]
+                author_name = parts[2] if len(parts) > 2 else "未知作者"
+                await self._handle_subscribe_author(update, author_id, author_name)
+    
+        elif data.startswith("unsub_author:"):
+            parts = data.split(":", 1)
+            if len(parts) == 2:
+                author_id = parts[1]
+                await self._handle_unsubscribe_author(update, author_id)
+    
         elif data.startswith("detail:"):
             parts = data.split(":")
             if len(parts) == 2:
@@ -561,20 +636,39 @@ class AITagSearchBot:
             except Exception:
                 pass
                 
+        # Get author info from API response
+        author_id = work.get("author_id")
+        author_name = work.get("author_name") or work_data.get("author_name") or "未知作者"
+        author_url = work.get("author_url", "")
+                
         # Format message
         header = "🎲 <b>随机推荐</b>\n" if is_random else "🖼️ <b>作品详情</b>\n"
         caption = f"{header}"
-        caption += f"标题：<b>{title}</b>\n"
-        caption += f"作者：<b>{author}</b>\n"
-        caption += f"ID：<code>{work_id}</code>\n"
+        caption += f"📌 标题：<b>{title}</b>\n"
+        
+        # Show author with link if available
+        if author_url:
+            caption += f"👤 作者：<a href='{author_url}'>{author_name}</a>\n"
+        else:
+            caption += f"👤 作者：<b>{author_name}</b>\n"
+            
+        caption += f"🆔 ID：<code>{work_id}</code>\n"
         caption += "─" * 15 + "\n"
         
+        # Add quick parameter summary if available
         if prompt:
-            display_prompt = prompt if len(prompt) < 300 else prompt[:300] + "..."
+            params = parse_parameters(prompt)
+            quick_summary = get_quick_summary(params)
+            if quick_summary:
+                caption += f"⚙️ {quick_summary}\n"
+                caption += "─" * 15 + "\n"
+        
+        if prompt:
+            display_prompt = prompt if len(prompt) < 250 else prompt[:250] + "..."
             caption += f"📝 <b>正向词：</b>\n<code>{display_prompt}</code>\n\n"
             
         if negative_prompt:
-            display_np = negative_prompt if len(negative_prompt) < 150 else negative_prompt[:150] + "..."
+            display_np = negative_prompt if len(negative_prompt) < 100 else negative_prompt[:100] + "..."
             caption += f"🚫 <b>反向词：</b>\n<code>{display_np}</code>\n\n"
             
         caption += f"🎲 种子：<code>{seed}</code> | 🧪 采样：{sampler}\n"
@@ -583,14 +677,31 @@ class AITagSearchBot:
         # Create buttons
         keyboard_buttons = []
         
-        # Row 1: Copy Prompt Button
-        keyboard_buttons.append([InlineKeyboardButton("📋 复制全文提示词 (手机点此)", callback_data=f"copy_prompt:{work_id}")])
+        # Row 1: Copy Prompt + Parameter Explain
+        row1 = [
+            InlineKeyboardButton("📋 复制咒语", callback_data=f"copy_prompt:{work_id}"),
+            InlineKeyboardButton("🎨 参数解读", callback_data=f"explain:{work_id}")
+        ]
+        keyboard_buttons.append(row1)
         
-        # Rows 2+: Tag buttons
+        # Row 2: Subscribe to Author (if author_id is available)
+        if author_id:
+            # Check if already subscribed
+            user_id = update.effective_user.id if update.effective_user else None
+            is_subscribed = False
+            if user_id:
+                is_subscribed = self.subscription_db.is_subscribed(user_id, "author", str(author_id))
+            
+            if is_subscribed:
+                sub_btn = InlineKeyboardButton(f"✅ 已订阅 {author_name}", callback_data=f"unsub_author:{author_id}")
+            else:
+                sub_btn = InlineKeyboardButton(f"🔔 订阅 {author_name}", callback_data=f"sub_author:{author_id}:{author_name}")
+            keyboard_buttons.append([sub_btn])
+        
+        # Rows 3+: Tag buttons
         if isinstance(tags, list):
-            # Limit to top 10 tags
             row = []
-            for tag in tags[:10]:
+            for tag in tags[:8]:  # Limit to 8 tags to save space
                 row.append(InlineKeyboardButton(f"#{tag}", callback_data=f"tag:{tag}"))
                 if len(row) == 2:
                     keyboard_buttons.append(row)
@@ -672,6 +783,115 @@ class AITagSearchBot:
             response += f"<b>Negative Prompt:</b>\n<code>{negative_prompt}</code>"
             
         await query.message.reply_text(response, parse_mode="HTML")
+
+    async def _send_parameter_explanation(self, update: Update, work_id: str):
+        """Send a detailed explanation of AI generation parameters."""
+        query = update.callback_query
+        await query.answer("正在解读参数...")
+        
+        work = await self.api_client.get_work_detail(work_id)
+        if not work:
+            await query.message.reply_text("❌ 获取参数失败")
+            return
+            
+        work_data = work.get("work") or work
+        images = work.get("images", [])
+        
+        prompt = ""
+        if images:
+            prompt = images[0].get("prompt_text") or ""
+        
+        if not prompt:
+            await query.message.reply_text("😕 该作品没有可解读的参数信息")
+            return
+        
+        # Parse and explain parameters
+        params = parse_parameters(prompt)
+        explanation = explain_parameters(params)
+        
+        await query.message.reply_text(explanation, parse_mode="HTML")
+
+    async def _handle_subscribe_author(self, update: Update, author_id: str, author_name: str):
+        """Handle subscribe to author button click."""
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        # Add subscription
+        success = self.subscription_db.add_subscription(
+            user_id=user_id,
+            sub_type="author",
+            sub_target=author_id,
+            sub_name=author_name
+        )
+        
+        if success:
+            await query.answer(f"✅ 已订阅 {author_name}！有新作品时会通知您")
+            # Update button text
+            try:
+                # Get the current keyboard and update the subscribe button
+                keyboard = query.message.reply_markup
+                if keyboard:
+                    new_buttons = []
+                    for row in keyboard.inline_keyboard:
+                        new_row = []
+                        for btn in row:
+                            if btn.callback_data and btn.callback_data.startswith("sub_author:"):
+                                # Change to unsubscribe button
+                                new_row.append(InlineKeyboardButton(
+                                    f"✅ 已订阅 {author_name}",
+                                    callback_data=f"unsub_author:{author_id}"
+                                ))
+                            else:
+                                new_row.append(btn)
+                        new_buttons.append(new_row)
+                    await query.edit_message_reply_markup(
+                        reply_markup=InlineKeyboardMarkup(new_buttons)
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to update button: {e}")
+        else:
+            await query.answer(f"您已经订阅过 {author_name} 了", show_alert=True)
+
+    async def _handle_unsubscribe_author(self, update: Update, author_id: str):
+        """Handle unsubscribe from author button click."""
+        query = update.callback_query
+        user_id = update.effective_user.id
+        
+        # Remove subscription
+        success = self.subscription_db.remove_subscription(
+            user_id=user_id,
+            sub_type="author",
+            sub_target=author_id
+        )
+        
+        if success:
+            await query.answer("已取消订阅")
+            # Update button text - need to get author name from somewhere
+            try:
+                keyboard = query.message.reply_markup
+                if keyboard:
+                    new_buttons = []
+                    for row in keyboard.inline_keyboard:
+                        new_row = []
+                        for btn in row:
+                            if btn.callback_data and btn.callback_data.startswith("unsub_author:"):
+                                # Extract author name from button text
+                                author_name = btn.text.replace("✅ 已订阅 ", "")
+                                new_row.append(InlineKeyboardButton(
+                                    f"🔔 订阅 {author_name}",
+                                    callback_data=f"sub_author:{author_id}:{author_name}"
+                                ))
+                            else:
+                                new_row.append(btn)
+                        new_buttons.append(new_row)
+                    await query.edit_message_reply_markup(
+                        reply_markup=InlineKeyboardMarkup(new_buttons)
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to update button: {e}")
+        else:
+            await query.answer("取消订阅失败", show_alert=True)
+
     async def post_init(self, application: Application) -> None:
         """Called after the application is initialized."""
         bot_info = await application.bot.get_me()

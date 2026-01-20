@@ -204,14 +204,16 @@ class AITagAPIClient:
     
 
     async def get_work_detail(self, work_id: int) -> Optional[Dict[str, Any]]:
-        """Get full details for a specific work.
+        """Get full details for a specific work, including author info.
         
         Args:
             work_id: Work ID
             
         Returns:
-            Dictionary containing work details, or None if request fails
+            Dictionary containing work details with author info, or None if request fails
         """
+        import json as json_module
+        
         url = f"{self.base_url}/api/work/{work_id}"
         logger.info(f"Fetching work detail: {url}")
         
@@ -229,7 +231,40 @@ class AITagAPIClient:
             async with client:
                 response = await client.get(url)
                 if response.status_code == 200:
-                    return response.json()
+                    data = response.json()
+                    
+                    # Extract author info from nested 'json' field
+                    work_data = data.get("work") or data
+                    json_str = work_data.get("json")
+                    
+                    if json_str:
+                        try:
+                            nested_data = json_module.loads(json_str)
+                            user_info = nested_data.get("user", {})
+                            
+                            # Add author info to response
+                            data["author_id"] = user_info.get("id") or work_data.get("userid")
+                            data["author_name"] = user_info.get("name", "未知作者")
+                            data["author_account"] = user_info.get("account", "")
+                            
+                            # Generate Pixiv link if available
+                            if data["author_id"]:
+                                data["author_url"] = f"https://www.pixiv.net/users/{data['author_id']}"
+                            else:
+                                data["author_url"] = ""
+                                
+                        except (json_module.JSONDecodeError, TypeError) as e:
+                            logger.warning(f"Failed to parse nested JSON for work {work_id}: {e}")
+                            data["author_id"] = work_data.get("userid")
+                            data["author_name"] = "未知作者"
+                            data["author_url"] = ""
+                    else:
+                        # Fallback to basic userid
+                        data["author_id"] = work_data.get("userid")
+                        data["author_name"] = "未知作者"
+                        data["author_url"] = ""
+                    
+                    return data
                 else:
                     logger.error(f"Failed to fetch work detail {work_id}: {response.status_code}")
                     return None

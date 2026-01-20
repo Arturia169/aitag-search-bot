@@ -10,3 +10,6 @@ services:
       - .env
     environment:
       - TZ=Asia/Shanghai
+      - SUBSCRIPTION_DB_PATH=/app/data/subscriptions.db
+    volumes:
+      - ./data:/app/data
