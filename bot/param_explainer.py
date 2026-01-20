@@ -19,7 +19,7 @@ PARAM_EXPLANATIONS = {
     },
     "cfg scale": {
         "name": "提示词引导强度 (CFG Scale)",
-        "desc": "决定 AI 对你输入的提示词的遵循程度。数值越高越"听话"但可能过度饱和；越低则更"创意"但可能偏离主题。推荐 5-12。"
+        "desc": "决定 AI 对你输入的提示词的遵循程度。数值越高越'听话'但可能过度饱和；越低则更'创意'但可能偏离主题。推荐 5-12。"
     },
     "seed": {
         "name": "随机种子 (Seed)",
@@ -31,7 +31,7 @@ PARAM_EXPLANATIONS = {
     },
     "model": {
         "name": "模型 (Model)",
-        "desc": "AI 绘画的"大脑"。不同模型擅长不同风格，如写实、动漫、插画等。这是影响画面风格的最关键因素。"
+        "desc": "AI 绘画的'大脑'。不同模型擅长不同风格，如写实、动漫、插画等。这是影响画面风格的最关键因素。"
     },
     "model hash": {
         "name": "模型哈希 (Model Hash)",
@@ -39,7 +39,7 @@ PARAM_EXPLANATIONS = {
     },
     "clip skip": {
         "name": "CLIP 层跳过 (Clip Skip)",
-        "desc": "跳过 CLIP 文本编码器的后几层。数值越大，对提示词的理解越"抽象"，常用于动漫风格。"
+        "desc": "跳过 CLIP 文本编码器的后几层。数值越大，对提示词的理解越'抽象'，常用于动漫风格。"
     },
     "denoising strength": {
         "name": "降噪强度 (Denoising)",
@@ -61,29 +61,19 @@ PARAM_EXPLANATIONS = {
 
 
 def parse_parameters(prompt_text: str) -> Dict[str, str]:
-    """Parse generation parameters from prompt text.
-    
-    Args:
-        prompt_text: Raw prompt text containing parameters
-        
-    Returns:
-        Dictionary of parameter name -> value
-    """
+    """Parse generation parameters from prompt text."""
     if not prompt_text:
         return {}
     
     params = {}
     
     # Common patterns: "Key: Value" or "Key:Value"
-    # Example: "Steps: 20, Sampler: Euler, CFG scale: 7, Seed: 12345"
     patterns = [
-        # Standard format: Key: Value
         r'(Steps|Sampler|CFG scale|Seed|Size|Model|Model hash|Clip skip|Denoising strength|Schedule type|VAE)\s*[:：]\s*([^,\n]+)',
-        # LoRA detection
         r'<lora:([^:>]+):[^>]+>',
     ]
     
-    for pattern in patterns[:1]:  # First pattern for standard params
+    for pattern in patterns[:1]:
         matches = re.findall(pattern, prompt_text, re.IGNORECASE)
         for key, value in matches:
             params[key.lower().strip()] = value.strip().rstrip(',')
@@ -97,14 +87,7 @@ def parse_parameters(prompt_text: str) -> Dict[str, str]:
 
 
 def explain_parameters(params: Dict[str, str]) -> str:
-    """Generate a formatted explanation of parameters.
-    
-    Args:
-        params: Dictionary of parameter name -> value
-        
-    Returns:
-        Formatted HTML string with explanations
-    """
+    """Generate a formatted explanation of parameters."""
     if not params:
         return "😕 未能从该作品中识别到生成参数。"
     
@@ -118,25 +101,16 @@ def explain_parameters(params: Dict[str, str]) -> str:
             lines.append(f"   值：<code>{value}</code>")
             lines.append(f"   💡 {info['desc']}\n")
         else:
-            # Unknown parameter, just show the value
             lines.append(f"<b>📌 {key}</b>: <code>{value}</code>\n")
     
     return "\n".join(lines)
 
 
 def get_quick_summary(params: Dict[str, str]) -> str:
-    """Get a one-line summary of key parameters.
-    
-    Args:
-        params: Dictionary of parameter name -> value
-        
-    Returns:
-        Short summary string
-    """
+    """Get a one-line summary of key parameters."""
     parts = []
     
     if "model" in params:
-        # Extract just the model name without hash
         model_name = params["model"].split(",")[0].strip()
         parts.append(f"🤖 {model_name}")
     
@@ -147,7 +121,7 @@ def get_quick_summary(params: Dict[str, str]) -> str:
         parts.append(f"📊 CFG {params['cfg scale']}")
     
     if "sampler" in params:
-        sampler = params["sampler"].split()[0]  # Just first word
+        sampler = params["sampler"].split()[0]
         parts.append(f"🎯 {sampler}")
     
     return " | ".join(parts) if parts else ""
