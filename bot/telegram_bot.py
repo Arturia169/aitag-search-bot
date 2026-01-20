@@ -57,6 +57,7 @@ class AITagSearchBot:
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("search", self.search_command))
         self.app.add_handler(CommandHandler("hot", self.hot_command))
+        self.app.add_handler(CommandHandler("random", self.random_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
@@ -80,11 +81,12 @@ class AITagSearchBot:
             "📖 <b>使用方法：</b>\n"
             "• 发送 <code>/search 关键词</code> 搜索图片\n"
             "• 发送 <code>/hot</code> 查看本月热门排行榜\n"
+            "• 发送 <code>/random</code> 随机看一张美图\n"
             "• 直接发送关键词也可以搜索\n"
             "• 例如：<code>/search wuwa</code> 或直接发送 <code>wuwa</code>\n\n"
             "💡 <b>提示：</b>\n"
             "• 支持中文和英文关键词\n"
-            "• 可以使用分页按钮浏览更多结果\n"
+            "• 点击作品下方的标签可直接进行搜索\n"
             "• 点击数字按钮查看大图和AI提示词\n\n"
             "🔗 数据来源：https://aitag.win/\n"
         )
@@ -102,11 +104,13 @@ class AITagSearchBot:
             "/start - 显示欢迎信息\n"
             "/search &lt;关键词&gt; - 搜索AI绘画作品\n"
             "/hot - 查看本月热门排行榜\n"
+            "/random - 随机看一张作品\n"
             "/help - 显示此帮助信息\n\n"
             "<b>使用示例：</b>\n"
             "• <code>/search genshin impact</code>\n"
             "• <code>/search 原神</code>\n"
             "• <code>/hot</code> - 查看热门作品\n"
+            "• <code>/random</code> - 抽个盲盒\n"
             "• 直接发送 <code>wuwa</code>\n\n"
             "如有问题，请访问：https://aitag.win/\n"
         )
@@ -135,6 +139,18 @@ class AITagSearchBot:
     async def hot_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /hot command to show monthly ranking."""
         await self._show_ranking(update, page=1)
+    
+    async def random_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /random command."""
+        status_msg = await update.message.reply_text("🎲 正在从图库中抽取一张随机作品...", parse_mode="HTML")
+        work = await self.api_client.get_random_work()
+        if not work:
+            await status_msg.edit_text("❌ 抽取失败，请重试")
+            return
+            
+        work_id = work.get("id") or work.get("work_id") or work.get("pid")
+        await status_msg.delete()
+        await self._send_work_detail(update, str(work_id), is_random=True)
     
     async def _perform_search(
         self,
@@ -443,6 +459,14 @@ class AITagSearchBot:
                 except ValueError:
                     await query.edit_message_text("❌ 无效的页码")
         
+        elif data.startswith("tag:"):
+            parts = data.split(":", 1)
+            if len(parts) == 2:
+                tag = parts[1]
+                # Trigger a fresh search for this tag
+                # We overwrite the query data since it's now a new context
+                await self._perform_search(update, tag, page=1)
+    
         elif data.startswith("detail:"):
             parts = data.split(":")
             if len(parts) == 2:
@@ -450,22 +474,33 @@ class AITagSearchBot:
                 await self._send_work_detail(update, work_id)
     
     
-    async def _send_work_detail(self, update: Update, work_id: str):
+    async def _send_work_detail(self, update: Update, work_id: str, is_random: bool = False):
         """Fetch and send detailed work information with image and prompts."""
         query = update.callback_query
         
-        # Show "loading..."
-        await query.answer("正在获取详情...")
+        if query:
+            # Called from a button
+            await query.answer("正在获取详情...")
+            chat_id = query.message.chat_id
+            message_thread_id = query.message.message_thread_id
+        else:
+            # Called from a command (like /random)
+            chat_id = update.effective_chat.id
+            message_thread_id = update.effective_message.message_thread_id if update.effective_message else None
         
         work = await self.api_client.get_work_detail(work_id)
         if not work:
-            await query.message.reply_text("❌ 获取详情失败，请重试")
+            msg = "❌ 获取详情失败，请重试"
+            if query:
+                await query.message.reply_text(msg)
+            else:
+                await update.message.reply_text(msg)
             return
             
         # Extract metadata
-        # Structure often contains a 'work' or 'items' or direct fields
         work_data = work.get("work") or work
         images = work.get("images", [])
+        tags = work_data.get("tags") or []
         
         title = work_data.get("title") or "无标题"
         author = work_data.get("author_name") or "未知作者"
@@ -491,48 +526,75 @@ class AITagSearchBot:
                 comment = ai_data.get("Comment", {})
                 if not prompt:
                     prompt = comment.get("prompt") or ""
-                negative_prompt = comment.get("uc") or ""  # Undesired content
+                negative_prompt = comment.get("uc") or ""
                 seed = ai_data.get("Seed") or comment.get("seed") or seed
                 sampler = ai_data.get("Sampler") or comment.get("sampler") or sampler
             except Exception:
                 pass
                 
         # Format message
-        caption = f"🖼️ <b>{title}</b>\n"
-        caption += f"👤 <b>作者：</b>{author}\n"
-        caption += f"🆔 <code>{work_id}</code>\n"
+        header = "🎲 <b>随机推荐</b>\n" if is_random else "🖼️ <b>作品详情</b>\n"
+        caption = f"{header}"
+        caption += f"标题：<b>{title}</b>\n"
+        caption += f"作者：<b>{author}</b>\n"
+        caption += f"ID：<code>{work_id}</code>\n"
         caption += "─" * 15 + "\n"
         
         if prompt:
-            # Truncate prompt if too long for caption (Telegram limit is 1024)
             display_prompt = prompt if len(prompt) < 300 else prompt[:300] + "..."
-            caption += f"📝 <b>正向提示词：</b>\n<code>{display_prompt}</code>\n\n"
+            caption += f"📝 <b>正向词：</b>\n<code>{display_prompt}</code>\n\n"
             
         if negative_prompt:
             display_np = negative_prompt if len(negative_prompt) < 150 else negative_prompt[:150] + "..."
-            caption += f"🚫 <b>反向提示词：</b>\n<code>{display_np}</code>\n\n"
+            caption += f"🚫 <b>反向词：</b>\n<code>{display_np}</code>\n\n"
             
-        caption += f"🎲 <b>种子：</b><code>{seed}</code> | 🧪 <b>采样：</b>{sampler}\n"
+        caption += f"🎲 种子：<code>{seed}</code> | 🧪 采样：{sampler}\n"
         caption += f"🔗 <a href='{self.api_client.get_work_url(work_id)}'>在网页查看原文</a>"
+
+        # Create tag buttons
+        tag_buttons = []
+        if isinstance(tags, list):
+            # Limit to top 10 tags to avoid heavy keyboard
+            row = []
+            for tag in tags[:10]:
+                row.append(InlineKeyboardButton(f"#{tag}", callback_data=f"tag:{tag}"))
+                if len(row) == 2:
+                    tag_buttons.append(row)
+                    row = []
+            if row:
+                tag_buttons.append(row)
+        
+        keyboard = InlineKeyboardMarkup(tag_buttons)
 
         try:
             if full_image_url:
-                await query.message.reply_photo(
-                    photo=full_image_url,
-                    caption=caption,
-                    parse_mode="HTML"
-                )
+                if query:
+                    await query.message.reply_photo(
+                        photo=full_image_url,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=keyboard
+                    )
+                else:
+                    await self.app.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=full_image_url,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        message_thread_id=message_thread_id
+                    )
             else:
-                await query.message.reply_text(
-                    caption,
-                    parse_mode="HTML",
-                    disable_web_page_preview=False
-                )
+                msg_call = query.message.reply_text if query else update.message.reply_text
+                await msg_call(caption, parse_mode="HTML", reply_markup=keyboard)
         except Exception as e:
-            logger.error(f"Error sending detail message: {e}", exc_info=True)
-            await query.message.reply_text("❌ 发送详情失败，可能是图片链接失效或消息过长")
-
-    async def post_init(self, application: Application) -> None:
+            logger.error(f"Error sending detail: {e}", exc_info=True)
+            err_msg = "❌ 发送失败，可能是图片链接失效"
+            if query:
+                await query.message.reply_text(err_msg)
+            else:
+                await update.message.reply_text(err_msg)
+      async def post_init(self, application: Application) -> None:
         """Called after the application is initialized."""
         bot_info = await application.bot.get_me()
         logger.info(f"Bot started successfully! Username: @{bot_info.username}")

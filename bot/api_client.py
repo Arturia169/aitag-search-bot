@@ -147,6 +147,51 @@ class AITagAPIClient:
         except Exception as e:
             logger.error(f"Error fetching ranking: {e}", exc_info=True)
             return None
+
+    async def get_random_work(self) -> Optional[Dict[str, Any]]:
+        """Fetch a random work from the entire library.
+        
+        Returns:
+            Dictionary containing a random work's details, or None if request fails
+        """
+        import random
+        
+        # Step 1: Get total count by searching with an empty query
+        url = f"{self.base_url}/api/ai_works_search"
+        params = {"page": 1, "page_size": 1}
+        
+        try:
+            # We reuse the simplified logic
+            async with httpx.AsyncClient(timeout=float(self.timeout)) as client:
+                if self.proxy_url:
+                    proxy = httpx.Proxy(url=self.proxy_url)
+                    client = httpx.AsyncClient(proxy=proxy, timeout=float(self.timeout))
+                
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    return None
+                    
+                data = resp.json()
+                total = self.get_total_count(data)
+                if total <= 0:
+                    return None
+                
+                # Step 2: Pick a random index and fetch that page
+                # We use a page size of 1 to keep it simple
+                random_index = random.randint(1, total)
+                params["page"] = random_index
+                
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    works = self.extract_works(resp.json())
+                    if works:
+                        return works[0]
+                        
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching random work: {e}", exc_info=True)
+            return None
+    
     
 
     async def get_work_detail(self, work_id: int) -> Optional[Dict[str, Any]]:
