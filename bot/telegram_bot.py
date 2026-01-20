@@ -778,16 +778,22 @@ class AITagSearchBot:
         work_data = work.get("work") or work
         images = work.get("images", [])
         
+        # Try multiple sources for parameters
         prompt = ""
+        ai_json_str = ""
+        
         if images:
             prompt = images[0].get("prompt_text") or ""
         
-        if not prompt:
-            await query.message.reply_text("😕 该作品没有可解读的参数信息")
-            return
+        ai_json_str = work_data.get("ai_json") or ""
         
-        # Parse and explain parameters
+        # Try parsing from prompt_text first (standard SD format)
         params = parse_parameters(prompt)
+        
+        # If no params found, try ai_json (ComfyUI format)
+        if not params and ai_json_str:
+            params = parse_parameters(ai_json_str)
+        
         explanation = explain_parameters(params)
         
         await query.message.reply_text(explanation, parse_mode="HTML")

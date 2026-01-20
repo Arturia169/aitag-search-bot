@@ -1,6 +1,7 @@
 """AI generation parameter parser and explainer."""
 
 import re
+import json
 import logging
 from typing import Dict, Optional
 
@@ -33,6 +34,10 @@ PARAM_EXPLANATIONS = {
         "name": "模型 (Model)",
         "desc": "AI 绘画的'大脑'。不同模型擅长不同风格，如写实、动漫、插画等。这是影响画面风格的最关键因素。"
     },
+    "checkpoint": {
+        "name": "基础模型 (Checkpoint)",
+        "desc": "ComfyUI 中的主模型文件。决定画面的整体风格和质量。"
+    },
     "model hash": {
         "name": "模型哈希 (Model Hash)",
         "desc": "模型文件的唯一标识符，用于精确匹配特定版本的模型。"
@@ -56,32 +61,112 @@ PARAM_EXPLANATIONS = {
     "lora": {
         "name": "LoRA 微调模型",
         "desc": "轻量级微调模型，用于添加特定角色、风格或概念，无需替换主模型。"
+    },
+    "workflow": {
+        "name": "工作流类型",
+        "desc": "该作品使用的生成工具类型，如 ComfyUI、Stable Diffusion WebUI 等。"
     }
 }
 
 
+def parse_comfyui_workflow(text: str) -> Dict[str, str]:
+    """Parse ComfyUI workflow JSON to extract parameters."""
+    params = {}
+    
+    try:
+        # Try to find JSON in the text
+        # ComfyUI workflows are typically nested JSON objects
+        json_match = re.search(r'\{[\s\S]*\}', text)
+        if not json_match:
+            return params
+            
+        workflow = json.loads(json_match.group())
+        
+        # Look for common ComfyUI node types
+        loras = []
+        
+        for node_id, node_data in workflow.items():
+            if not isinstance(node_data, dict):
+                continue
+                
+            class_type = node_data.get("class_type", "")
+            inputs = node_data.get("inputs", {})
+            
+            # Checkpoint loaders
+            if "Checkpoint" in class_type or "CheckpointLoader" in class_type:
+                ckpt_name = inputs.get("ckpt_name", "")
+                if ckpt_name:
+                    # Clean up the name
+                    ckpt_name = ckpt_name.replace(".safetensors", "").replace(".ckpt", "")
+                    params["checkpoint"] = ckpt_name
+            
+            # LoRA loaders
+            if "Lora" in class_type or "LoRA" in class_type:
+                lora_text = inputs.get("text", "") or inputs.get("lora_name", "")
+                if lora_text:
+                    # Extract lora name from <lora:name:weight> format
+                    lora_match = re.search(r'<lora:([^:>]+)', lora_text)
+                    if lora_match:
+                        loras.append(lora_match.group(1))
+                    elif not lora_text.startswith("<"):
+                        loras.append(lora_text.replace(".safetensors", ""))
+            
+            # KSampler nodes
+            if "KSampler" in class_type or "Sampler" in class_type:
+                if "steps" in inputs:
+                    params["steps"] = str(inputs["steps"])
+                if "cfg" in inputs:
+                    params["cfg scale"] = str(inputs["cfg"])
+                if "sampler_name" in inputs:
+                    params["sampler"] = inputs["sampler_name"]
+                if "scheduler" in inputs:
+                    params["schedule type"] = inputs["scheduler"]
+                if "seed" in inputs:
+                    params["seed"] = str(inputs["seed"])
+            
+            # VAE
+            if "VAE" in class_type:
+                vae_name = inputs.get("vae_name", "")
+                if vae_name:
+                    params["vae"] = vae_name.replace(".safetensors", "")
+        
+        if loras:
+            params["lora"] = ", ".join(loras)
+        
+        if params:
+            params["workflow"] = "ComfyUI"
+            
+    except (json.JSONDecodeError, Exception) as e:
+        logger.debug(f"Failed to parse ComfyUI workflow: {e}")
+    
+    return params
+
+
 def parse_parameters(prompt_text: str) -> Dict[str, str]:
-    """Parse generation parameters from prompt text."""
+    """Parse generation parameters from prompt text (supports SD and ComfyUI formats)."""
     if not prompt_text:
         return {}
     
     params = {}
     
-    # Common patterns: "Key: Value" or "Key:Value"
+    # Method 1: Standard SD format - "Key: Value" patterns
     patterns = [
         r'(Steps|Sampler|CFG scale|Seed|Size|Model|Model hash|Clip skip|Denoising strength|Schedule type|VAE)\s*[:：]\s*([^,\n]+)',
-        r'<lora:([^:>]+):[^>]+>',
     ]
     
-    for pattern in patterns[:1]:
+    for pattern in patterns:
         matches = re.findall(pattern, prompt_text, re.IGNORECASE)
         for key, value in matches:
             params[key.lower().strip()] = value.strip().rstrip(',')
     
-    # LoRA detection
-    lora_matches = re.findall(patterns[1], prompt_text, re.IGNORECASE)
+    # LoRA detection in standard format
+    lora_matches = re.findall(r'<lora:([^:>]+):[^>]+>', prompt_text, re.IGNORECASE)
     if lora_matches:
         params["lora"] = ", ".join(lora_matches)
+    
+    # Method 2: If no standard params found, try ComfyUI workflow format
+    if not params:
+        params = parse_comfyui_workflow(prompt_text)
     
     return params
 
@@ -89,11 +174,17 @@ def parse_parameters(prompt_text: str) -> Dict[str, str]:
 def explain_parameters(params: Dict[str, str]) -> str:
     """Generate a formatted explanation of parameters."""
     if not params:
-        return "😕 未能从该作品中识别到生成参数。"
+        return "😕 该作品没有可解读的参数信息。\n\n可能原因：\n• 非标准格式工作流\n• 作者未公开参数\n• 参数已被移除"
     
     lines = ["🎨 <b>AI 生成参数解读</b>\n"]
     
+    # Show workflow type first if present
+    if "workflow" in params:
+        lines.append(f"📦 <b>工具</b>: {params['workflow']}\n")
+    
     for key, value in params.items():
+        if key == "workflow":
+            continue
         key_lower = key.lower()
         if key_lower in PARAM_EXPLANATIONS:
             info = PARAM_EXPLANATIONS[key_lower]
@@ -110,8 +201,12 @@ def get_quick_summary(params: Dict[str, str]) -> str:
     """Get a one-line summary of key parameters."""
     parts = []
     
-    if "model" in params:
-        model_name = params["model"].split(",")[0].strip()
+    # Check for model (SD) or checkpoint (ComfyUI)
+    model_name = params.get("model") or params.get("checkpoint")
+    if model_name:
+        model_name = model_name.split(",")[0].strip()
+        if len(model_name) > 20:
+            model_name = model_name[:17] + "..."
         parts.append(f"🤖 {model_name}")
     
     if "steps" in params:
@@ -123,5 +218,8 @@ def get_quick_summary(params: Dict[str, str]) -> str:
     if "sampler" in params:
         sampler = params["sampler"].split()[0]
         parts.append(f"🎯 {sampler}")
+    
+    if "workflow" in params:
+        parts.append(f"📦 {params['workflow']}")
     
     return " | ".join(parts) if parts else ""
