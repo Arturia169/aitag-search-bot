@@ -61,35 +61,22 @@ class AITagSearchBot:
     
     def _register_handlers(self):
         """Register command and message handlers."""
-        # English commands
+        # Commands (Telegram only supports alphanumeric + underscore)
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("search", self.search_command))
         self.app.add_handler(CommandHandler("hot", self.hot_command))
         self.app.add_handler(CommandHandler("random", self.random_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
-        
-        # Chinese command aliases (中文指令)
-        self.app.add_handler(CommandHandler("搜", self.search_command))
-        self.app.add_handler(CommandHandler("搜索", self.search_command))
-        self.app.add_handler(CommandHandler("帮助", self.help_command))
-        self.app.add_handler(CommandHandler("随机", self.random_command))
-        self.app.add_handler(CommandHandler("随机推荐", self.random_command))
-        self.app.add_handler(CommandHandler("热榜", self.hot_command))
-        self.app.add_handler(CommandHandler("热门", self.hot_command))
-        
-        # Subscription commands
         self.app.add_handler(CommandHandler("subscribe", self.subscribe_command))
-        self.app.add_handler(CommandHandler("订阅", self.subscribe_command))
-        self.app.add_handler(CommandHandler("我的订阅", self.subscribe_command))
         
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
-        # Handle plain text messages as search queries
+        # Handle plain text messages as search queries (supports Chinese keywords)
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message))
         
         # Add error handler
         self.app.add_error_handler(self.error_handler)
         
-        logger.info("All handlers registered successfully (EN + CN)")
+        logger.info("All handlers registered successfully")
     
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -124,26 +111,20 @@ class AITagSearchBot:
         help_message = (
             "📖 <b>全功能帮助菜单</b>\n\n"
             "<b>1️⃣ 基础搜索：</b>\n"
-            "• <code>wuwa</code> - 直接发送词条即刻搜索\n"
-            "• <code>/search 原神</code> 或 <code>/搜 原神</code>\n\n"
+            "• 直接发送任意文字即搜索 (支持中文)\n"
+            "• <code>/search 原神</code> - 使用命令搜索\n\n"
             "<b>2️⃣ 流行与发现：</b>\n"
-            "• <code>/hot</code> 或 <code>/热榜</code> - 本月最热门\n"
-            "• <code>/random</code> 或 <code>/随机</code> - 全站随机\n"
+            "• <code>/hot</code> - 本月最热门作品\n"
+            "• <code>/random</code> - 全站随机推荐\n"
             "• <code>/random 白髪</code> - 定向随机抽图\n\n"
-            "<b>3️⃣ 作品详情页：</b>\n"
-            "• 👤 <b>作者链接</b> - 点击作者名跳转 Pixiv\n"
-            "• 📋 <b>复制咒语</b> - 获取可直接复制的提示词\n"
-            "• 🎨 <b>参数解读</b> - AI科普生成参数含义\n"
-            "• 🔔 <b>订阅作者</b> - 该作者更新时自动通知\n"
-            "• #️⃣ <b>标签跳转</b> - 点击标签发起新搜索\n\n"
+            "<b>3️⃣ 作品详情页功能：</b>\n"
+            "• 👤 作者链接 - 点击跳转 Pixiv\n"
+            "• 📋 复制咒语 - 获取完整提示词\n"
+            "• 🎨 参数解读 - AI科普生成参数\n"
+            "• 🔔 订阅作者 - 自动通知新作品\n"
+            "• #️⃣ 标签跳转 - 点击标签搜索\n\n"
             "<b>4️⃣ 订阅管理：</b>\n"
-            "• <code>/subscribe</code> 或 <code>/订阅</code> - 查看我的订阅列表\n\n"
-            "<b>5️⃣ 中文指令速查：</b>\n"
-            "• <code>/搜</code> <code>/搜索</code> = /search\n"
-            "• <code>/热榜</code> <code>/热门</code> = /hot\n"
-            "• <code>/随机</code> = /random\n"
-            "• <code>/订阅</code> <code>/我的订阅</code> = /subscribe\n"
-            "• <code>/帮助</code> = /help\n\n"
+            "• <code>/subscribe</code> - 查看订阅列表\n\n"
             "如有疑问请访问：https://aitag.win/\n"
         )
         await update.message.reply_text(help_message, parse_mode="HTML")
