@@ -154,7 +154,9 @@ class AITagAPIClient:
         
         # Step 1: Get total count
         url = f"{self.base_url}/api/ai_works_search"
-        params = {"page": 1, "page_size": 20} 
+        # API REQUIREMENT: page_size must be >= 60
+        api_page_size = 60
+        params = {"page": 1, "page_size": api_page_size} 
         if keyword:
             params["q"] = keyword
         
@@ -167,7 +169,7 @@ class AITagAPIClient:
             async with httpx.AsyncClient(transport=transport, timeout=float(self.timeout)) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code != 200:
-                    logger.error(f"Random fetch step 1 failed: {resp.status_code}")
+                    logger.error(f"Random fetch step 1 failed: {resp.status_code} - {resp.text[:200]}")
                     return None
                     
                 data = resp.json()
@@ -176,13 +178,13 @@ class AITagAPIClient:
                     return None
                 
                 # Step 2: Pick a random page
-                page_size = 10
-                total_pages = (total_items + page_size - 1) // page_size
-                max_pages = min(total_pages, 200) 
+                # We cap at about 2000 items (33 pages * 60) for stable performance
+                total_pages = (total_items + api_page_size - 1) // api_page_size
+                max_pages = min(total_pages, 33) 
                 
                 for _ in range(3): # Try up to 3 times
                     random_page = random.randint(1, max_pages)
-                    fetch_params = {"page": random_page, "page_size": page_size}
+                    fetch_params = {"page": random_page, "page_size": api_page_size}
                     if keyword:
                         fetch_params["q"] = keyword
                         
@@ -191,6 +193,8 @@ class AITagAPIClient:
                         works = self.extract_works(resp.json())
                         if works:
                             return random.choice(works)
+                    else:
+                        logger.warning(f"Random fetch retry failed (page {random_page}): {resp.status_code}")
                 
             return None
         except Exception as e:
