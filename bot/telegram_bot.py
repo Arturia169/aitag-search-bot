@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -809,7 +809,46 @@ class AITagSearchBot:
         keyboard = InlineKeyboardMarkup(keyboard_buttons)
 
         try:
-            if full_image_url:
+            # Collect all valid image URLs (up to 10 for Telegram limit)
+            all_image_urls = []
+            for img in images[:10]:
+                url = self.api_client.get_full_image_url(img.get("image_path"))
+                if url:
+                    all_image_urls.append(url)
+            
+            if len(all_image_urls) > 1:
+                # Multiple images - use media group
+                media_group = []
+                for i, url in enumerate(all_image_urls):
+                    if i == 0:
+                        # First image gets the caption
+                        media_group.append(InputMediaPhoto(media=url, caption=caption, parse_mode="HTML"))
+                    else:
+                        media_group.append(InputMediaPhoto(media=url))
+                
+                if query:
+                    await query.message.reply_media_group(media=media_group)
+                    # Send buttons separately since media_group doesn't support reply_markup
+                    await query.message.reply_text(
+                        f"📎 <b>共 {len(all_image_urls)} 张图片</b>",
+                        parse_mode="HTML",
+                        reply_markup=keyboard
+                    )
+                else:
+                    await self.app.bot.send_media_group(
+                        chat_id=chat_id,
+                        media=media_group,
+                        message_thread_id=message_thread_id
+                    )
+                    await self.app.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"📎 <b>共 {len(all_image_urls)} 张图片</b>",
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        message_thread_id=message_thread_id
+                    )
+            elif full_image_url:
+                # Single image
                 if query:
                     await query.message.reply_photo(
                         photo=full_image_url,
