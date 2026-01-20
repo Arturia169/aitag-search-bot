@@ -148,37 +148,45 @@ class AITagAPIClient:
             logger.error(f"Error fetching ranking: {e}", exc_info=True)
             return None
 
-    async def get_random_work(self) -> Optional[Dict[str, Any]]:
-        """Fetch a random work from the entire library.
+    async def get_random_work(self, keyword: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Fetch a random work from the entire library or filtered by keyword.
         
+        Args:
+            keyword: Optional search keyword to filter results
+            
         Returns:
             Dictionary containing a random work's details, or None if request fails
         """
         import random
         
-        # Step 1: Get total count by searching with an empty query
+        # Step 1: Get total count
         url = f"{self.base_url}/api/ai_works_search"
         params = {"page": 1, "page_size": 1}
+        if keyword:
+            params["q"] = keyword
         
         try:
-            # We reuse the simplified logic
-            async with httpx.AsyncClient(timeout=float(self.timeout)) as client:
-                if self.proxy_url:
-                    proxy = httpx.Proxy(url=self.proxy_url)
-                    client = httpx.AsyncClient(proxy=proxy, timeout=float(self.timeout))
+            # Create client with proxy if needed
+            transport = None
+            if self.proxy_url:
+                proxy = httpx.Proxy(url=self.proxy_url)
+                transport = httpx.AsyncHTTPTransport(proxy=proxy)
                 
+            async with httpx.AsyncClient(transport=transport, timeout=float(self.timeout)) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code != 200:
                     return None
                     
                 data = resp.json()
                 total = self.get_total_count(data)
+                # API total is sometimes capped or large, we limit to avoid empty pages if it's too huge
+                # but usually it's fine. We cap at 1000 for keyword random to stay in safe range.
                 if total <= 0:
                     return None
                 
                 # Step 2: Pick a random index and fetch that page
-                # We use a page size of 1 to keep it simple
-                random_index = random.randint(1, total)
+                max_reachable = min(total, 2000) # API performance limit
+                random_index = random.randint(1, max_reachable)
                 params["page"] = random_index
                 
                 resp = await client.get(url, params=params)

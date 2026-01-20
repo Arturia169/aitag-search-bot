@@ -141,11 +141,19 @@ class AITagSearchBot:
         await self._show_ranking(update, page=1)
     
     async def random_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /random command."""
-        status_msg = await update.message.reply_text("🎲 正在从图库中抽取一张随机作品...", parse_mode="HTML")
-        work = await self.api_client.get_random_work()
+        """Handle /random command with optional keyword."""
+        keyword = " ".join(context.args) if context.args else None
+        
+        status_text = "🎲 正在抽取一张随机作品..."
+        if keyword:
+            status_text = f"🎲 正在抽取一张关于 <b>{keyword}</b> 的随机作品..."
+            
+        status_msg = await update.message.reply_text(status_text, parse_mode="HTML")
+        work = await self.api_client.get_random_work(keyword)
+        
         if not work:
-            await status_msg.edit_text("❌ 抽取失败，请重试")
+            fail_text = "❌ 抽取失败，可能没有找到相关作品" if keyword else "❌ 抽取失败，请重试"
+            await status_msg.edit_text(fail_text)
             return
             
         work_id = work.get("id") or work.get("work_id") or work.get("pid")
@@ -467,6 +475,12 @@ class AITagSearchBot:
                 # We overwrite the query data since it's now a new context
                 await self._perform_search(update, tag, page=1)
     
+        elif data.startswith("copy_prompt:"):
+            parts = data.split(":", 1)
+            if len(parts) == 2:
+                work_id = parts[1]
+                await self._send_copyable_prompt(update, work_id)
+    
         elif data.startswith("detail:"):
             parts = data.split(":")
             if len(parts) == 2:
@@ -551,20 +565,25 @@ class AITagSearchBot:
         caption += f"🎲 种子：<code>{seed}</code> | 🧪 采样：{sampler}\n"
         caption += f"🔗 <a href='{self.api_client.get_work_url(work_id)}'>在网页查看原文</a>"
 
-        # Create tag buttons
-        tag_buttons = []
+        # Create buttons
+        keyboard_buttons = []
+        
+        # Row 1: Copy Prompt Button
+        keyboard_buttons.append([InlineKeyboardButton("📋 复制全文提示词 (手机点此)", callback_data=f"copy_prompt:{work_id}")])
+        
+        # Rows 2+: Tag buttons
         if isinstance(tags, list):
-            # Limit to top 10 tags to avoid heavy keyboard
+            # Limit to top 10 tags
             row = []
             for tag in tags[:10]:
                 row.append(InlineKeyboardButton(f"#{tag}", callback_data=f"tag:{tag}"))
                 if len(row) == 2:
-                    tag_buttons.append(row)
+                    keyboard_buttons.append(row)
                     row = []
             if row:
-                tag_buttons.append(row)
+                keyboard_buttons.append(row)
         
-        keyboard = InlineKeyboardMarkup(tag_buttons)
+        keyboard = InlineKeyboardMarkup(keyboard_buttons)
 
         try:
             if full_image_url:
@@ -594,6 +613,50 @@ class AITagSearchBot:
                 await query.message.reply_text(err_msg)
             else:
                 await update.message.reply_text(err_msg)
+
+    async def _send_copyable_prompt(self, update: Update, work_id: str):
+        """Send a separate message with the full prompt for easy copying."""
+        query = update.callback_query
+        await query.answer("正在生成可复制提示词...")
+        
+        work = await self.api_client.get_work_detail(work_id)
+        if not work:
+            await query.message.reply_text("❌ 获取咒语失败")
+            return
+            
+        work_data = work.get("work") or work
+        images = work.get("images", [])
+        
+        prompt = ""
+        negative_prompt = ""
+        
+        if images:
+            prompt = images[0].get("prompt_text") or ""
+            
+        import json
+        ai_json_str = work_data.get("ai_json")
+        if ai_json_str:
+            try:
+                ai_data = json.loads(ai_json_str)
+                comment = ai_data.get("Comment", {})
+                if not prompt:
+                    prompt = comment.get("prompt") or ""
+                negative_prompt = comment.get("uc") or ""
+            except Exception:
+                pass
+        
+        if not prompt and not negative_prompt:
+             await query.message.reply_text("😕 该作品没有记录提示词信息")
+             return
+
+        # Format as a clean block for copying
+        response = "📋 <b>完整提示词 (点击代码块即可复制):</b>\n\n"
+        if prompt:
+            response += f"<b>Prompt:</b>\n<code>{prompt}</code>\n\n"
+        if negative_prompt:
+            response += f"<b>Negative Prompt:</b>\n<code>{negative_prompt}</code>"
+            
+        await query.message.reply_text(response, parse_mode="HTML")
     async def post_init(self, application: Application) -> None:
         """Called after the application is initialized."""
         bot_info = await application.bot.get_me()
