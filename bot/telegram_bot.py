@@ -177,7 +177,7 @@ class AITagSearchBot:
             await update.message.reply_text(
                 "📭 <b>您还没有订阅任何作者</b>\n\n"
                 "💡 <b>如何订阅？</b>\n"
-                "查看任意作品详情时，点击 "🔔 订阅 作者名" 按钮即可订阅该作者。\n"
+                "查看任意作品详情时，点击 '🔔 订阅 作者名' 按钮即可订阅该作者。\n"
                 "当该作者有新作品时，机器人会自动通知您！",
                 parse_mode="HTML"
             )
