@@ -54,11 +54,22 @@ class AITagSearchBot:
     
     def _register_handlers(self):
         """Register command and message handlers."""
+        # English commands
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("search", self.search_command))
         self.app.add_handler(CommandHandler("hot", self.hot_command))
         self.app.add_handler(CommandHandler("random", self.random_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+        
+        # Chinese command aliases (中文指令)
+        self.app.add_handler(CommandHandler("搜", self.search_command))
+        self.app.add_handler(CommandHandler("搜索", self.search_command))
+        self.app.add_handler(CommandHandler("帮助", self.help_command))
+        self.app.add_handler(CommandHandler("随机", self.random_command))
+        self.app.add_handler(CommandHandler("随机推荐", self.random_command))
+        self.app.add_handler(CommandHandler("热榜", self.hot_command))
+        self.app.add_handler(CommandHandler("热门", self.hot_command))
+        
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.text_message))
@@ -66,7 +77,8 @@ class AITagSearchBot:
         # Add error handler
         self.app.add_error_handler(self.error_handler)
         
-        logger.info("All handlers registered successfully")
+        logger.info("All handlers registered successfully (EN + CN)")
+    
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle errors."""
@@ -101,18 +113,20 @@ class AITagSearchBot:
             "📖 <b>全功能帮助菜单</b>\n\n"
             "<b>1️⃣ 基础搜索：</b>\n"
             "• <code>wuwa</code> - 直接发送词条即刻搜索\n"
-            "• <code>/search 原神</code> - 使用命令搜索\n\n"
+            "• <code>/search 原神</code> 或 <code>/搜 原神</code>\n\n"
             "<b>2️⃣ 流行与发现：</b>\n"
-            "• <code>/hot</code> - 本月最热门的作品排行\n"
-            "• <code>/random</code> - 全站随机推荐一张美图\n"
-            "• <code>/random 白髪</code> - <b>(新)</b> 随机推荐一张特定主题作品\n\n"
+            "• <code>/hot</code> 或 <code>/热榜</code> - 本月最热门的作品\n"
+            "• <code>/random</code> 或 <code>/随机</code> - 全站随机推荐\n"
+            "• <code>/random 白髪</code> 或 <code>/随机 白髪</code> - 定向随机\n\n"
             "<b>3️⃣ 详情与咒语：</b>\n"
             "• <b>[数字按钮]</b> - 获取全量高清大图及生成参数\n"
             "• <b>[📋 复制咒语]</b> - 获取专为手机优化的可点击复制提示词\n"
             "• <b>[#标签按钮]</b> - 点击作品下方的标签实现连续跳转浏览\n\n"
-            "<b>4️⃣ 其他：</b>\n"
-            "• <code>/start</code> - 重显欢迎信息\n"
-            "• <code>/help</code> - 打开此帮助菜单\n\n"
+            "<b>4️⃣ 中文指令速查：</b>\n"
+            "• <code>/搜</code> <code>/搜索</code> = /search\n"
+            "• <code>/热榜</code> <code>/热门</code> = /hot\n"
+            "• <code>/随机</code> <code>/随机推荐</code> = /random\n"
+            "• <code>/帮助</code> = /help\n\n"
             "如有疑问或建议，请访问：https://aitag.win/\n"
         )
         await update.message.reply_text(help_message, parse_mode="HTML")
