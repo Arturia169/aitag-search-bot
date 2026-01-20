@@ -56,6 +56,7 @@ class AITagSearchBot:
         """Register command and message handlers."""
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("search", self.search_command))
+        self.app.add_handler(CommandHandler("hot", self.hot_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CallbackQueryHandler(self.button_callback))
         # Handle plain text messages as search queries
@@ -78,11 +79,13 @@ class AITagSearchBot:
             "欢迎使用AI绘画搜索机器人！\n\n"
             "📖 <b>使用方法：</b>\n"
             "• 发送 <code>/search 关键词</code> 搜索图片\n"
+            "• 发送 <code>/hot</code> 查看本月热门排行榜\n"
             "• 直接发送关键词也可以搜索\n"
             "• 例如：<code>/search wuwa</code> 或直接发送 <code>wuwa</code>\n\n"
             "💡 <b>提示：</b>\n"
             "• 支持中文和英文关键词\n"
-            "• 可以使用分页按钮浏览更多结果\n\n"
+            "• 可以使用分页按钮浏览更多结果\n"
+            "• 点击数字按钮查看大图和AI提示词\n\n"
             "🔗 数据来源：https://aitag.win/\n"
         )
         try:
@@ -98,10 +101,12 @@ class AITagSearchBot:
             "<b>可用命令：</b>\n"
             "/start - 显示欢迎信息\n"
             "/search &lt;关键词&gt; - 搜索AI绘画作品\n"
+            "/hot - 查看本月热门排行榜\n"
             "/help - 显示此帮助信息\n\n"
             "<b>使用示例：</b>\n"
             "• <code>/search genshin impact</code>\n"
             "• <code>/search 原神</code>\n"
+            "• <code>/hot</code> - 查看热门作品\n"
             "• 直接发送 <code>wuwa</code>\n\n"
             "如有问题，请访问：https://aitag.win/\n"
         )
@@ -126,6 +131,10 @@ class AITagSearchBot:
         keyword = update.message.text.strip()
         if keyword:
             await self._perform_search(update, keyword, page=1)
+    
+    async def hot_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /hot command to show monthly ranking."""
+        await self._show_ranking(update, page=1)
     
     async def _perform_search(
         self,
@@ -194,6 +203,71 @@ class AITagSearchBot:
                 disable_web_page_preview=False
             )
     
+    async def _show_ranking(
+        self,
+        update: Update,
+        page: int = 1,
+        message_id: Optional[int] = None
+    ):
+        """Show monthly ranking.
+        
+        Args:
+            update: Telegram update object
+            page: Page number (1-indexed)
+            message_id: Message ID to edit (for pagination)
+        """
+        # Send "loading..." message
+        if message_id is None:
+            status_msg = await update.message.reply_text("🔥 正在获取本月热门排行榜...", parse_mode="HTML")
+        
+        # Fetch ranking
+        results = await self.api_client.get_monthly_ranking(
+            page=page,
+            page_size=max(60, self.config.results_per_page)
+        )
+        
+        if results is None:
+            error_msg = "❌ 获取排行榜失败，请稍后重试"
+            if message_id:
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await status_msg.edit_text(error_msg)
+            return
+        
+        works = self.api_client.extract_works(results)
+        total_count = self.api_client.get_total_count(results)
+        
+        if not works:
+            no_results_msg = "😕 暂无排行榜数据"
+            if message_id:
+                await update.callback_query.edit_message_text(no_results_msg, parse_mode="HTML")
+            else:
+                await status_msg.edit_text(no_results_msg, parse_mode="HTML")
+            return
+        
+        # Format results
+        message = self._format_ranking_results(works, page, total_count)
+        
+        # Create pagination buttons
+        keyboard = self._create_ranking_keyboard(works, page, total_count)
+        
+        # Send or edit message
+        if message_id:
+            await update.callback_query.edit_message_text(
+                message,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=False
+            )
+        else:
+            await status_msg.edit_text(
+                message,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=False
+            )
+    
+    
     def _format_search_results(
         self,
         keyword: str,
@@ -220,6 +294,78 @@ class AITagSearchBot:
         message += "\n💡 点击下方数字查看图片及提示词"
         return message
     
+    def _format_ranking_results(
+        self,
+        works: list,
+        page: int,
+        total_count: int
+    ) -> str:
+        """Format ranking results as a message.
+        
+        Returns:
+            Formatted message string
+        """
+        message = f"🔥 <b>本月热门排行榜</b>\n"
+        message += f"共 <b>{total_count}</b> 个作品 | 第 <b>{page}</b> 页\n"
+        message += "─" * 20 + "\n"
+        
+        display_works = works[:10]
+        
+        for i, work in enumerate(display_works, 1):
+            title = work.get("title") or work.get("name") or "无标题"
+            # Add ranking emoji for top 3
+            rank_emoji = ""
+            if page == 1:
+                if i == 1:
+                    rank_emoji = "🥇 "
+                elif i == 2:
+                    rank_emoji = "🥈 "
+                elif i == 3:
+                    rank_emoji = "🥉 "
+            
+            message += f"{rank_emoji}{i}. <b>{title}</b>\n"
+        
+        message += "\n💡 点击下方数字查看图片及提示词"
+        return message
+    
+    def _create_ranking_keyboard(
+        self,
+        works: list,
+        current_page: int,
+        total_count: int
+    ) -> InlineKeyboardMarkup:
+        """Create keyboard for ranking with detail buttons and pagination."""
+        total_pages = (total_count + self.config.results_per_page - 1) // self.config.results_per_page
+        
+        keyboard = []
+        
+        # Detail buttons in rows of 5
+        display_works = works[:10]
+        detail_rows = []
+        for i, work in enumerate(display_works, 1):
+            work_id = work.get("id") or work.get("work_id") or work.get("pid")
+            detail_rows.append(InlineKeyboardButton(str(i), callback_data=f"detail:{work_id}"))
+            if len(detail_rows) == 5:
+                keyboard.append(detail_rows)
+                detail_rows = []
+        if detail_rows:
+            keyboard.append(detail_rows)
+            
+        # Pagination row
+        nav_buttons = []
+        if current_page > 1:
+            nav_buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank:{current_page - 1}"))
+        
+        nav_buttons.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="noop"))
+        
+        if current_page < total_pages:
+            nav_buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank:{current_page + 1}"))
+            
+        keyboard.append(nav_buttons)
+        
+        return InlineKeyboardMarkup(keyboard)
+    
+
     def _create_pagination_keyboard(
         self,
         keyword: str,
@@ -278,6 +424,19 @@ class AITagSearchBot:
                     await self._perform_search(
                         update,
                         keyword,
+                        page=page,
+                        message_id=query.message.message_id
+                    )
+                except ValueError:
+                    await query.edit_message_text("❌ 无效的页码")
+        
+        elif data.startswith("rank:"):
+            parts = data.split(":")
+            if len(parts) == 2:
+                try:
+                    page = int(parts[1])
+                    await self._show_ranking(
+                        update,
                         page=page,
                         message_id=query.message.message_id
                     )

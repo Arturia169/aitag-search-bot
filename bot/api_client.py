@@ -93,6 +93,62 @@ class AITagAPIClient:
             logger.error(f"Unexpected error during API request: {e}", exc_info=True)
             return None
 
+    async def get_monthly_ranking(
+        self,
+        page: int = 1,
+        page_size: int = 60,
+        month: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get monthly ranking of popular works.
+        
+        Args:
+            page: Page number (1-indexed)
+            page_size: Number of results per page
+            month: Optional month filter (format: YYYY-MM), if None uses current month
+            
+        Returns:
+            Dictionary containing ranking results, or None if request fails
+        """
+        # Use real-time ranking if no specific month is provided
+        if month:
+            url = f"{self.base_url}/api/rank/monthly/fixed"
+            params = {"month": month, "page": page, "page_size": page_size}
+        else:
+            url = f"{self.base_url}/api/rank/monthly/real"
+            params = {"page": page, "page_size": page_size}
+        
+        logger.info(f"Fetching monthly ranking: url={url}, params={params}")
+        
+        try:
+            if self.proxy_url:
+                proxy = httpx.Proxy(url=self.proxy_url)
+                mounts = {
+                    "http://": httpx.AsyncHTTPTransport(proxy=proxy),
+                    "https://": httpx.AsyncHTTPTransport(proxy=proxy),
+                }
+                client = httpx.AsyncClient(mounts=mounts, timeout=float(self.timeout))
+            else:
+                client = httpx.AsyncClient(timeout=float(self.timeout))
+                
+            async with client:
+                response = await client.get(url, params=params)
+                
+                logger.info(f"Ranking API response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    works = self.extract_works(data)
+                    logger.info(f"Ranking fetch successful, got {len(works)} results")
+                    return data
+                else:
+                    logger.error(f"Failed to fetch ranking: {response.status_code}")
+                    logger.error(f"Response body: {response.text[:500]}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching ranking: {e}", exc_info=True)
+            return None
+    
+
     async def get_work_detail(self, work_id: int) -> Optional[Dict[str, Any]]:
         """Get full details for a specific work.
         
