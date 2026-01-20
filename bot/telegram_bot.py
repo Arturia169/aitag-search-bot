@@ -594,7 +594,7 @@ class AITagSearchBot:
                 await query.message.reply_text(err_msg)
             else:
                 await update.message.reply_text(err_msg)
-      async def post_init(self, application: Application) -> None:
+    async def post_init(self, application: Application) -> None:
         """Called after the application is initialized."""
         bot_info = await application.bot.get_me()
         logger.info(f"Bot started successfully! Username: @{bot_info.username}")
