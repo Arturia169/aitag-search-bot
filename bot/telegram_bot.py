@@ -616,6 +616,18 @@ class AITagSearchBot:
                 sampler = ai_data.get("Sampler") or comment.get("sampler") or sampler
             except Exception:
                 pass
+        
+        # Also try to extract from prompt_text using regex (for standard SD format)
+        if seed == "N/A" or sampler == "N/A":
+            import re
+            if seed == "N/A":
+                seed_match = re.search(r'Seed[:\s]+(\d+)', prompt, re.IGNORECASE)
+                if seed_match:
+                    seed = seed_match.group(1)
+            if sampler == "N/A":
+                sampler_match = re.search(r'Sampler[:\s]+([^,\n]+)', prompt, re.IGNORECASE)
+                if sampler_match:
+                    sampler = sampler_match.group(1).strip()
                 
         # Get author info from API response
         author_id = work.get("author_id")
