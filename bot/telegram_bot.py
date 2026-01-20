@@ -192,7 +192,7 @@ class AITagSearchBot:
         await self._show_ranking(update, page=1)
     
     async def random_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /random command with optional keyword."""
+        """Handle /random command with optional keyword and auto-retry on failure."""
         keyword = " ".join(context.args) if context.args else None
         
         status_text = "🎲 正在抽取一张随机作品..."
@@ -200,16 +200,34 @@ class AITagSearchBot:
             status_text = f"🎲 正在抽取一张关于 <b>{keyword}</b> 的随机作品..."
             
         status_msg = await update.message.reply_text(status_text, parse_mode="HTML")
-        work = await self.api_client.get_random_work(keyword)
         
-        if not work:
-            fail_text = "❌ 抽取失败，可能没有找到相关作品" if keyword else "❌ 抽取失败，请重试"
-            await status_msg.edit_text(fail_text)
-            return
+        # Try up to 5 times to get a valid work with working image
+        max_retries = 5
+        for attempt in range(max_retries):
+            work = await self.api_client.get_random_work(keyword)
+        
+            if not work:
+                if attempt < max_retries - 1:
+                    continue  # Try again
+                fail_text = "❌ 抽取失败，可能没有找到相关作品" if keyword else "❌ 抽取失败，请重试"
+                await status_msg.edit_text(fail_text)
+                return
+                
+            work_id = work.get("id") or work.get("work_id") or work.get("pid")
             
-        work_id = work.get("id") or work.get("work_id") or work.get("pid")
-        await status_msg.delete()
-        await self._send_work_detail(update, str(work_id), is_random=True)
+            # Try to send the work detail - returns True on success
+            success = await self._send_work_detail_with_retry(update, str(work_id))
+            
+            if success:
+                await status_msg.delete()
+                return
+            else:
+                # Image failed, try another random work
+                logger.info(f"Random work {work_id} image failed, retrying... ({attempt+1}/{max_retries})")
+                continue
+        
+        # All retries failed
+        await status_msg.edit_text("❌ 多次抽取均失败，请稍后重试")
     
     async def _perform_search(
         self,
@@ -558,6 +576,92 @@ class AITagSearchBot:
                 work_id = parts[1]
                 await self._send_work_detail(update, work_id)
     
+    async def _send_work_detail_with_retry(self, update: Update, work_id: str) -> bool:
+        """Send work detail for random mode, returns True on success, False if image fails.
+        
+        This version is silent on failure - used by random_command for auto-retry.
+        """
+        work = await self.api_client.get_work_detail(work_id)
+        if not work:
+            return False
+            
+        # Get work data
+        work_data = work.get("work") or work
+        images = work.get("images", [])
+        
+        if not images:
+            return False
+            
+        # Get image URL
+        img = images[0]
+        full_image_url = self.api_client.get_full_image_url(img.get("image_path"))
+        
+        if not full_image_url:
+            return False
+        
+        # Try to send the image
+        chat_id = update.effective_chat.id
+        message_thread_id = update.effective_message.message_thread_id if update.effective_message else None
+        
+        # Build caption (simplified version for random)
+        title = work_data.get("title") or "无标题"
+        author_name = work.get("author_name") or work_data.get("author_name") or "未知作者"
+        author_url = work.get("author_url", "")
+        tags = work_data.get("tags") or []
+        
+        caption = "🎲 <b>随机推荐</b>\n"
+        caption += f"📌 标题：<b>{title}</b>\n"
+        if author_url:
+            caption += f"👤 作者：<a href='{author_url}'>{author_name}</a>\n"
+        else:
+            caption += f"👤 作者：<b>{author_name}</b>\n"
+        caption += f"🆔 ID：<code>{work_id}</code>\n"
+        caption += f"🔗 <a href='{self.api_client.get_work_url(work_id)}'>在网页查看原文</a>"
+        
+        # Create minimal keyboard
+        author_id = work.get("author_id")
+        keyboard_buttons = [
+            [
+                InlineKeyboardButton("📋 复制咒语", callback_data=f"copy_prompt:{work_id}"),
+                InlineKeyboardButton("🎨 参数解读", callback_data=f"explain:{work_id}")
+            ]
+        ]
+        if author_id:
+            user_id = update.effective_user.id if update.effective_user else None
+            is_subscribed = self.subscription_db.is_subscribed(user_id, "author", str(author_id)) if user_id else False
+            
+            if is_subscribed:
+                sub_btn = InlineKeyboardButton(f"✅ 已订阅 {author_name}", callback_data=f"unsub_author:{author_id}")
+            else:
+                sub_btn = InlineKeyboardButton(f"🔔 订阅 {author_name}", callback_data=f"sub_author:{author_id}:{author_name}")
+            keyboard_buttons.append([sub_btn])
+        
+        # Add tag buttons
+        if isinstance(tags, list):
+            row = []
+            for tag in tags[:6]:
+                row.append(InlineKeyboardButton(f"#{tag}", callback_data=f"tag:{tag}"))
+                if len(row) == 2:
+                    keyboard_buttons.append(row)
+                    row = []
+            if row:
+                keyboard_buttons.append(row)
+        
+        keyboard = InlineKeyboardMarkup(keyboard_buttons)
+        
+        try:
+            await self.app.bot.send_photo(
+                chat_id=chat_id,
+                photo=full_image_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                message_thread_id=message_thread_id
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send random work {work_id}: {e}")
+            return False
     
     async def _send_work_detail(self, update: Update, work_id: str, is_random: bool = False):
         """Fetch and send detailed work information with image and prompts."""
